@@ -172,7 +172,8 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> 
                     'quote_assert_volume', 'number_of_trades', 'taker_buy_volume', 
                     'taker_buy_quote_asset_volume', 'ignore'])
     
-    output_data = output_data.drop(columns=['ignore'])
+    del output_data['ignore']
+    # output_data = output_data.drop(columns=['ignore'])
 
     return output_data
 
