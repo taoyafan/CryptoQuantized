@@ -283,7 +283,8 @@ class Data:
 
 
 def main():
-    symbol = "BTCUSDT"
+    # symbol = "BTCUSDT"
+    symbol = "LUNABUSD"
     interval = DataType.INTERVAL_1MINUTE
     start = "2019/05/22 UTC+8"
     end = "1 minute ago UTC+8"
