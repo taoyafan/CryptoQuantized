@@ -1,10 +1,13 @@
+from typing import Dict, Optional, List
 import pandas as pd
 import matplotlib.pyplot as plt
 import mpl_finance
 import numpy as np
 from matplotlib import ticker
 
-class PricePlot(object):
+from base_types import IdxValue, OptPoints
+
+class PricePlot:
     def __init__(self, open, high, low, close, open_time):
         self.data = pd.DataFrame()
         self.data['open'] = open
@@ -14,7 +17,8 @@ class PricePlot(object):
         self.data['timestamp'] = open_time
         self.data = self.data.reset_index(drop=True)
 
-    def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, opt_point=None, earn_point=None):
+    def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, 
+        opt_point: Optional[OptPoints]=None, earn_point: Optional[IdxValue]=None):
         figure_num = 1 if plot_candle else 0
         figure_num += 1 if plot_vol else 0
         figure_num += 1 if earn_point else 0
@@ -32,8 +36,8 @@ class PricePlot(object):
             if datum_lines:
                 self._datum_lines_plot(subplot, datum_lines)
             if opt_point:
-                subplot.scatter(opt_point['buy']['idx'], opt_point['buy']['value'], s=90, c='r', label="buy")  # type: ignore
-                subplot.scatter(opt_point['sell']['idx'], opt_point['sell']['value'], s=90, c='g', label="sell") # type: ignore
+                subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
+                subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
             plt.legend()
             num += 1
 
@@ -85,16 +89,16 @@ class PricePlot(object):
     def _vol_plot(self, subplot):
         self.data['up'] = self.data.apply(lambda row: 1 if row['close'] >= row['open'] else 0, axis=1)
         subplot.bar(self.data.query('up == 1')['dates'].values,
-                    self.data.query('up == 1')['volume'].values / 10000, color='r')  # type: ignore
+                    self.data.query('up == 1')['volume'].values / 10000, color='g')  # type: ignore
         subplot.bar(self.data.query('up == 0')['dates'].values,
-                    self.data.query('up == 0')['volume'].values / 10000, color='g')  # type: ignore
+                    self.data.query('up == 0')['volume'].values / 10000, color='r')  # type: ignore
         subplot.set_ylabel('vol (W)')
         return
 
-    def _earn_plot(self, subplot, earn_point):
+    def _earn_plot(self, subplot, earn_point:IdxValue):
         subplot.plot(range(0, self.data.shape[0]), self.data.close / self.data.close[0],
                      color="blue", linewidth=1.0, label='base')
-        subplot.plot(earn_point['idx'] + [self.data.shape[0] - 1], earn_point['value'] + [earn_point['value'][-1]],
+        subplot.plot(earn_point.idx + [self.data.shape[0] - 1], earn_point.value + [earn_point.value[-1]],
                      color="red", linewidth=1.0, label='policy')
 
 def main():

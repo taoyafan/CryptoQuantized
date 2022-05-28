@@ -27,6 +27,18 @@ class DataType(Enum):
     INTERVAL_1WEEK = Client.KLINE_INTERVAL_1WEEK
     INTERVAL_1MONTH = Client.KLINE_INTERVAL_1MONTH
 
+class DataColumns():
+    OPEN_TIME = 'open_time'
+    OPEN = 'open'
+    HIGH = 'high'
+    LOW = 'low'
+    CLOSE = 'close'
+    VOLUME = 'volume'
+    CLOSE_TIME = 'close_time'
+    QUOTE_ASSERT_VOLUME = 'quote_assert_volume'
+    NUMBER_OF_TRADES = 'number_of_trades'
+    TAKER_BUY_VOLUME = 'taker_buy_volume'
+    TAKER_BUY_QUOTE_ASSET_VOLUME = 'taker_buy_quote_asset_volume'
 
 def date_to_milliseconds(date_str) -> int:
     """Convert UTC date to milliseconds
@@ -168,9 +180,11 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> 
     print()
     output_data = pd.DataFrame(
         output_data, 
-        columns =['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 
-                    'quote_assert_volume', 'number_of_trades', 'taker_buy_volume', 
-                    'taker_buy_quote_asset_volume', 'ignore'])
+        columns =[
+            DataColumns.OPEN_TIME, DataColumns.OPEN, DataColumns.HIGH, DataColumns.LOW, 
+            DataColumns.CLOSE, DataColumns.VOLUME, DataColumns.CLOSE_TIME, 
+            DataColumns.QUOTE_ASSERT_VOLUME, DataColumns.NUMBER_OF_TRADES, 
+            DataColumns.TAKER_BUY_VOLUME, DataColumns.TAKER_BUY_QUOTE_ASSET_VOLUME, 'ignore'])
     
     del output_data['ignore']
     # output_data = output_data.drop(columns=['ignore'])

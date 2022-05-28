@@ -2,3 +2,4 @@ __pycache__
 .vscode
 data
 api_key.py
+test.ipynb
