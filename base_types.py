@@ -1,4 +1,6 @@
 from typing import Dict, Optional, List, Set
+from binance.client import Client
+from enum import Enum
 
 class IdxValue:
     def __init__(self, idx: Optional[List]=None, value: Optional[List]=None):
@@ -71,3 +73,20 @@ class OptState:
         self.nums[reason][other_reason] += 1
         self.earns[reason][other_reason].append(earn)
         self.pair_unfinished = False
+
+class DataType(Enum):
+    INTERVAL_1MINUTE = Client.KLINE_INTERVAL_1MINUTE
+    INTERVAL_3MINUTE = Client.KLINE_INTERVAL_3MINUTE
+    INTERVAL_5MINUTE = Client.KLINE_INTERVAL_5MINUTE
+    INTERVAL_15MINUTE = Client.KLINE_INTERVAL_15MINUTE
+    INTERVAL_30MINUTE = Client.KLINE_INTERVAL_30MINUTE
+    INTERVAL_1HOUR = Client.KLINE_INTERVAL_1HOUR
+    INTERVAL_2HOUR = Client.KLINE_INTERVAL_2HOUR
+    INTERVAL_4HOUR = Client.KLINE_INTERVAL_4HOUR
+    INTERVAL_6HOUR = Client.KLINE_INTERVAL_6HOUR
+    INTERVAL_8HOUR = Client.KLINE_INTERVAL_8HOUR
+    INTERVAL_12HOUR = Client.KLINE_INTERVAL_12HOUR
+    INTERVAL_1DAY = Client.KLINE_INTERVAL_1DAY
+    INTERVAL_3DAY = Client.KLINE_INTERVAL_3DAY
+    INTERVAL_1WEEK = Client.KLINE_INTERVAL_1WEEK
+    INTERVAL_1MONTH = Client.KLINE_INTERVAL_1MONTH

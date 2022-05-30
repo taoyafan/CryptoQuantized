@@ -1,31 +1,12 @@
 from typing import Dict, Optional, List, Union
-from enum import Enum
 
 import time
-import dateparser
-import pytz
 import os
 import pandas as pd
 
-from datetime import datetime, timedelta
 from binance.client import Client
-
-class DataType(Enum):
-    INTERVAL_1MINUTE = Client.KLINE_INTERVAL_1MINUTE
-    INTERVAL_3MINUTE = Client.KLINE_INTERVAL_3MINUTE
-    INTERVAL_5MINUTE = Client.KLINE_INTERVAL_5MINUTE
-    INTERVAL_15MINUTE = Client.KLINE_INTERVAL_15MINUTE
-    INTERVAL_30MINUTE = Client.KLINE_INTERVAL_30MINUTE
-    INTERVAL_1HOUR = Client.KLINE_INTERVAL_1HOUR
-    INTERVAL_2HOUR = Client.KLINE_INTERVAL_2HOUR
-    INTERVAL_4HOUR = Client.KLINE_INTERVAL_4HOUR
-    INTERVAL_6HOUR = Client.KLINE_INTERVAL_6HOUR
-    INTERVAL_8HOUR = Client.KLINE_INTERVAL_8HOUR
-    INTERVAL_12HOUR = Client.KLINE_INTERVAL_12HOUR
-    INTERVAL_1DAY = Client.KLINE_INTERVAL_1DAY
-    INTERVAL_3DAY = Client.KLINE_INTERVAL_3DAY
-    INTERVAL_1WEEK = Client.KLINE_INTERVAL_1WEEK
-    INTERVAL_1MONTH = Client.KLINE_INTERVAL_1MONTH
+from utils import *
+from base_types import DataType
 
 class DataColumns():
     OPEN_TIME = 'open_time'
@@ -40,67 +21,6 @@ class DataColumns():
     TAKER_BUY_VOLUME = 'taker_buy_volume'
     TAKER_BUY_QUOTE_ASSET_VOLUME = 'taker_buy_quote_asset_volume'
 
-def date_to_milliseconds(date_str) -> int:
-    """Convert UTC date to milliseconds
-
-    If using offset strings add "UTC" to date string e.g. "now UTC", "11 hours ago UTC"
-
-    See dateparse docs for formats http://dateparser.readthedocs.io/en/latest/
-
-    :param date_str: date in readable format, i.e. "January 01, 2018", "11 hours ago UTC", "now UTC"
-    :type date_str: str
-    """
-    # get epoch value in UTC
-    epoch = datetime.utcfromtimestamp(0).replace(tzinfo=pytz.utc)
-    # parse our date string
-    d = dateparser.parse(date_str)
-
-    # if the date is not timezone aware apply UTC timezone
-    if d:
-        if d.tzinfo is None or d.tzinfo.utcoffset(d) is None:
-            d = d.replace(tzinfo=pytz.utc)
-
-        # return the difference in time
-        return int((d - epoch).total_seconds() * 1000.0)
-    else:
-        raise ValueError(date_str)
-
-def milliseconds_to_date(ms: int) -> str:
-    """Convert milliseconds to string of local data 
-    e.g. 2022-05-21 22:24:18
-    """
-    epoch = datetime.fromtimestamp(0)
-    return str(epoch + timedelta(milliseconds=ms))
-
-def interval_to_milliseconds(interval: DataType) -> int:
-    """Convert a Binance interval string to milliseconds
-
-    :param interval: Binance interval string 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w
-    :type interval: str
-
-    :return:
-        None if unit not one of m, h, d or w
-        None if string not in correct format
-        int value of interval in milliseconds
-    """
-    ms = None
-    seconds_per_unit = {
-        "m": 60,
-        "h": 60 * 60,
-        "d": 24 * 60 * 60,
-        "w": 7 * 24 * 60 * 60
-    }
-
-    unit = interval.value[-1]
-    if unit in seconds_per_unit:
-        try:
-            ms = int(interval.value[:-1]) * seconds_per_unit[unit] * 1000
-        except ValueError:
-            pass
-    if ms:
-        return ms
-    else:
-        raise ValueError(interval)
 
 def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> pd.DataFrame:
     """Get Historical Klines from Binance
@@ -194,15 +114,53 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> 
 
 class Data:
 
-    def __init__(self, symbol: str, interval: DataType):
+    def __init__(self, symbol: str, interval: DataType, start_str: Optional[str]=None, end_str: Optional[str]=None):
         self.symbol = symbol
         self.interval = interval
         self.file_loc = 'data/{}_{}.csv'.format(symbol, interval.value)
         self.data: pd.DataFrame = self._get_init_data()
+        if start_str:
+            self.replace_data_with_date(start_str, end_str)
 
 
     # ====================================== public ======================================
 
+    def replace_data_with_date(self, start_str: str, end_str: Optional[str]=None):
+        interval_ms = interval_to_milliseconds(self.interval)
+        
+        # Get the start idx
+        start_of_all = self.start_time()
+        start_ms = date_to_milliseconds(start_str)
+        if start_of_all:
+            if start_ms >= start_of_all:
+                start_idx = (start_ms - start_of_all) // interval_ms
+            else:
+                start_idx = 0
+        else:
+            start_idx = None
+        
+        # Get the end idx
+        end_of_all = self.end_time()
+        if end_str:
+            end_ms = date_to_milliseconds(end_str) 
+            if end_ms and end_of_all and end_ms > end_of_all:
+                end_ms = end_of_all
+        else:
+            end_ms = end_of_all
+        
+        if end_ms and start_of_all:
+            end_idx = (end_ms - start_of_all) // interval_ms + 1
+        else:
+            end_idx = None
+        
+        # Get data
+        if start_idx and end_idx:
+            data = self.data.iloc[start_idx: end_idx, :].reset_index(drop=True)
+        else:
+            data = pd.DataFrame()
+        
+        self.data = data
+        
     def update(self, start_str: Optional[str]=None, end_str: Optional[str]=None):
         """Update slef.data from start_str to end_str
             
@@ -298,14 +256,15 @@ class Data:
 
 
 def main():
-    # symbol = "BTCUSDT"
-    symbol = "LUNABUSD"
+    symbol = "BTCUSDT"
+    # symbol = "LUNABUSD"
     interval = DataType.INTERVAL_1MINUTE
     start = "2019/05/22 UTC+8"
     end = "1 minute ago UTC+8"
 
     data = Data(symbol, interval)
-    data.update(start, end)
+    # data.update(start, end)
+    data.replace_data_with_date("2019/8/23 UTC+8", "2020/3/1 UTC+8")
     print('Start time is {}'.format(data.start_time_str()))
     print('End time is {}'.format(data.end_time_str()))
     print('length {}'.format(data.len()))
