@@ -30,14 +30,14 @@ class PricePlot:
         if plot_candle:
             subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1)
             self._candle_plot(subplot)
+            if opt_point:
+                subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
+                subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
             if datum:
                 subplot.scatter(datum['high']['idx'], datum['high']['value'], s=30, c='b', label="high")  # type: ignore
                 subplot.scatter(datum['low']['idx'], datum['low']['value'], s=30, c='y', label="low") # type: ignore
             if datum_lines:
                 self._datum_lines_plot(subplot, datum_lines)
-            if opt_point:
-                subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
-                subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
             plt.legend()
             num += 1
 
@@ -50,6 +50,13 @@ class PricePlot:
             subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1, sharex=subplot)
             self._earn_plot(subplot, earn_point)
         
+        if subplot:
+            def format_date(x, pos):
+                if x < 0 or x > self.data.shape[0] - 1:
+                    return ''
+                return self.data.timestamp.values[int(x)]
+            subplot.xaxis.set_major_formatter(ticker.FuncFormatter(format_date))
+            
         plt.legend()
         plt.show()
 
@@ -58,12 +65,6 @@ class PricePlot:
         ohlc = self.data[['open', 'high', 'low', 'close']]
         ohlc = ohlc.reset_index()
 
-        def format_date(x, pos):
-            if x < 0 or x > self.data.shape[0] - 1:
-                return ''
-            return self.data.timestamp.values[int(x)]
-
-        subplot.xaxis.set_major_formatter(ticker.FuncFormatter(format_date))
         mpl_finance.candlestick_ohlc(ax=subplot, quotes=ohlc.values,
                                      width=0.7, colorup='g', colordown='r')
 
