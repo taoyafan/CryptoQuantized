@@ -22,7 +22,8 @@ class DataColumns():
     TAKER_BUY_QUOTE_ASSET_VOLUME = 'taker_buy_quote_asset_volume'
 
 
-def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> pd.DataFrame:
+def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None, 
+                          is_futures: Optional[bool]=False) -> pd.DataFrame:
     """Get Historical Klines from Binance
 
     See dateparse docs for valid start and end string formats http://dateparser.readthedocs.io/en/latest/
@@ -64,7 +65,8 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> 
     symbol_existed = False
     while True:
         # fetch the klines from start_ts up to max 500 entries or the end_ts if set
-        temp_data = client.get_klines(
+        fun = client.futures_klines if is_futures else client.get_klines
+        temp_data = fun(
             symbol=symbol,
             interval=interval.value,
             limit=limit,
@@ -114,10 +116,13 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None) -> 
 
 class Data:
 
-    def __init__(self, symbol: str, interval: DataType, start_str: Optional[str]=None, end_str: Optional[str]=None):
+    def __init__(self, symbol: str, interval: DataType, start_str: Optional[str]=None, 
+                 end_str: Optional[str]=None, is_futures: Optional[bool]=False):
         self.symbol = symbol
         self.interval = interval
-        self.file_loc = 'data/{}_{}.csv'.format(symbol, interval.value)
+        self.is_futures = is_futures
+        self.file_loc = 'data/{}_{}{}.csv'.format(symbol, interval.value, 
+            '_futures' if is_futures else '')
         self.data: pd.DataFrame = self._get_init_data()
         if start_str:
             self.replace_data_with_date(start_str, end_str)
@@ -174,7 +179,8 @@ class Data:
         start_ms, end_ms = self._time_str_to_ms(start_str, end_str)
         
         if end_ms > start_ms:
-            klines = get_historical_klines(self.symbol, self.interval, start_ms, end_ms)
+            klines = get_historical_klines(self.symbol, self.interval, 
+                                           start_ms, end_ms, self.is_futures)
             
             if len(klines) > 0:
                 if os.path.exists(self.file_loc):
@@ -256,15 +262,19 @@ class Data:
 
 
 def main():
-    symbol = "BTCUSDT"
+    # symbol = "BTCUSDT"
+    symbol = "BTCBUSD"
     # symbol = "LUNABUSD"
+    # symbol = "LUNCBUSD"
     interval = DataType.INTERVAL_1MINUTE
-    start = "2019/05/22 UTC+8"
+    # start = "2022/05/31 14:11 UTC+8"
+    start = "140 days ago UTC+8"
     end = "1 minute ago UTC+8"
 
+    # data = Data(symbol, interval, is_futures=True)
     data = Data(symbol, interval)
-    # data.update(start, end)
-    data.replace_data_with_date("2019/8/23 UTC+8", "2020/3/1 UTC+8")
+    data.update(start, end)
+    # data.replace_data_with_date("2019/8/23 UTC+8", "2020/3/1 UTC+8")
     print('Start time is {}'.format(data.start_time_str()))
     print('End time is {}'.format(data.end_time_str()))
     print('length {}'.format(data.len()))
