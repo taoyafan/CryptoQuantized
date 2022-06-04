@@ -8,6 +8,15 @@ from matplotlib import ticker
 from base_types import IdxValue, OptPoints
 
 class PricePlot:
+
+    class Points:
+        def __init__(self, idx, value, s, c, label):
+            self.idx = idx
+            self.value = value
+            self.s = s
+            self.c = c
+            self.label = label
+
     def __init__(self, open, high, low, close, open_time):
         self.data = pd.DataFrame()
         self.data['open'] = open
@@ -18,7 +27,9 @@ class PricePlot:
         self.data = self.data.reset_index(drop=True)
 
     def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, 
-        opt_point: Optional[OptPoints]=None, earn_point: Optional[IdxValue]=None):
+             opt_point: Optional[OptPoints]=None, earn_point: Optional[IdxValue]=None, 
+             points: Optional[List[Points]]=None):
+
         figure_num = 1 if plot_candle else 0
         figure_num += 1 if plot_vol else 0
         figure_num += 1 if earn_point else 0
@@ -30,6 +41,9 @@ class PricePlot:
         if plot_candle:
             subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1)
             self._candle_plot(subplot)
+            if points:
+                for p in points:
+                    subplot.scatter(p.idx, p.value, s=p.s, c=p.c, label=p.label)  # type: ignore
             if opt_point:
                 subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
                 subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
@@ -96,7 +110,7 @@ class PricePlot:
         subplot.set_ylabel('vol (W)')
         return
 
-    def _earn_plot(self, subplot, earn_point:IdxValue):
+    def _earn_plot(self, subplot, earn_point: IdxValue):
         subplot.plot(range(0, self.data.shape[0]), self.data.close / self.data.close[0],
                      color="blue", linewidth=1.0, label='base')
         subplot.plot(earn_point.idx + [self.data.shape[0] - 1], earn_point.value + [earn_point.value[-1]],

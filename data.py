@@ -1,25 +1,12 @@
 from typing import Dict, Optional, List, Union
-
+from enum import Enum
 import time
 import os
 import pandas as pd
 
 from binance.client import Client
 from utils import *
-from base_types import DataType
-
-class DataColumns():
-    OPEN_TIME = 'open_time'
-    OPEN = 'open'
-    HIGH = 'high'
-    LOW = 'low'
-    CLOSE = 'close'
-    VOLUME = 'volume'
-    CLOSE_TIME = 'close_time'
-    QUOTE_ASSERT_VOLUME = 'quote_assert_volume'
-    NUMBER_OF_TRADES = 'number_of_trades'
-    TAKER_BUY_VOLUME = 'taker_buy_volume'
-    TAKER_BUY_QUOTE_ASSET_VOLUME = 'taker_buy_quote_asset_volume'
+from base_types import DataType, DataElements
 
 
 def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None, 
@@ -101,12 +88,7 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None,
         
     print()
     output_data = pd.DataFrame(
-        output_data, 
-        columns =[
-            DataColumns.OPEN_TIME, DataColumns.OPEN, DataColumns.HIGH, DataColumns.LOW, 
-            DataColumns.CLOSE, DataColumns.VOLUME, DataColumns.CLOSE_TIME, 
-            DataColumns.QUOTE_ASSERT_VOLUME, DataColumns.NUMBER_OF_TRADES, 
-            DataColumns.TAKER_BUY_VOLUME, DataColumns.TAKER_BUY_QUOTE_ASSET_VOLUME, 'ignore'])
+        output_data, columns = [e.value for e in DataElements] + ['ignore'])
     
     del output_data['ignore']
     # output_data = output_data.drop(columns=['ignore'])
@@ -117,56 +99,109 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None,
 class Data:
 
     def __init__(self, symbol: str, interval: DataType, start_str: Optional[str]=None, 
-                 end_str: Optional[str]=None, is_futures: Optional[bool]=False):
+                 end_str: Optional[str]=None, start_idx: Optional[int]=None, 
+                 end_idx: Optional[int]=None, num: Optional[int]=None, 
+                 is_futures: Optional[bool]=False):
+        """
+        params:
+            MUST set:
+                symbol: e.g. BTCBUSD
+                interval: e.g. DataType.INTERVAL_1MINUTE
+            
+            When set range of data, one of two type pairs can choose:
+                start_str, end_str(Optional): e.g. "2021/3/1 UTC+8", "2021/5/1 UTC+8"
+                start_idx, end_idx(Optional): e.g. 100, 200
+
+                If num is not set, start must set. end is optional and the default origin end.
+                If num is set. select num of data from start or end of end(default). Can not set both
+                    start and end.
+            Others:
+                is_futures: is data is futures
+        """
+        
         self.symbol = symbol
         self.interval = interval
+        self.interval_ms = interval_to_milliseconds(self.interval)
         self.is_futures = is_futures
+        
+        # Get the initial data from file if has
         self.file_loc = 'data/{}_{}{}.csv'.format(symbol, interval.value, 
             '_futures' if is_futures else '')
         self.data: pd.DataFrame = self._get_init_data()
-        if start_str:
-            self.replace_data_with_date(start_str, end_str)
+        
+        # Whether can call update method
+        self.can_update = True
+        if start_idx or end_str or start_idx or end_idx or num:
+            self.replace_data_with_range(start_str, end_str, start_idx, end_idx, num)
+
+        self.time2index = pd.DataFrame()
 
 
     # ====================================== public ======================================
 
-    def replace_data_with_date(self, start_str: str, end_str: Optional[str]=None):
-        interval_ms = interval_to_milliseconds(self.interval)
-        
-        # Get the start idx
-        start_of_all = self.start_time()
-        start_ms = date_to_milliseconds(start_str)
-        if start_of_all:
-            if start_ms >= start_of_all:
-                start_idx = (start_ms - start_of_all) // interval_ms
+    # May change self.data
+    def replace_data_with_range(self, start_str: Optional[str]=None, end_str: Optional[str]=None, 
+                                start_idx: Optional[int]=None, end_idx: Optional[int]=None, 
+                                num: Optional[int]=None):
+        """Get the range of data with which replace self.data
+
+            One of two type pairs can choose:
+                start_str, end_str(Optional): e.g. "2021/3/1 UTC+8", "2021/5/1 UTC+8"
+                start_idx, end_idx(Optional): e.g. 100, 200
+
+                If num is not set, start must set. end is optional and the default origin end.
+                If num is set. select num of data from start or end of end(default). Can not set both
+                    start and end.
+        """
+        # 1. Convert str to idx
+        if start_str or end_str:
+            assert not (start_idx or end_idx), 'Can not set both date str and idx'
+            start_ms = date_to_milliseconds(start_str) if start_str else None
+            end_ms = date_to_milliseconds(end_str) if end_str else None
+            
+            data = self.data
+            if start_ms:
+                data = data[(data[DataElements.OPEN_TIME.value] >= start_ms)]
+                start_idx = data.index.values[0] if len(data) > 0 else None 
+
+            if end_ms:
+                data = data[(data[DataElements.OPEN_TIME.value] <= end_ms)]
+                end_idx = data.index.values[-1] if len(data.index) > 0 else None 
+    
+        # print('After convert str to idx, start idx: {}, end idx: {}'.format(start_idx, end_idx))
+        # 2. Set both start_idx and end_idx
+        if num:
+            assert not (start_idx and end_idx), 'Can not set both start and end when set num'
+            if start_idx is not None:
+                if start_idx < 0:
+                    start_idx = len(self.data) - start_idx
+                end_idx = start_idx + num
             else:
-                start_idx = 0
-        else:
-            start_idx = None
-        
-        # Get the end idx
-        end_of_all = self.end_time()
-        if end_str:
-            end_ms = date_to_milliseconds(end_str) 
-            if end_ms and end_of_all and end_ms > end_of_all:
-                end_ms = end_of_all
-        else:
-            end_ms = end_of_all
-        
-        if end_ms and start_of_all:
-            end_idx = (end_ms - start_of_all) // interval_ms + 1
-        else:
+                # start_idx is None
+                if end_idx is None or end_idx >= len(self.data):
+                    end_idx = len(self.data)
+                elif end_idx < 0:
+                    end_idx = len(self.data) - end_idx
+                
+                start_idx = end_idx-num
+
+        # 3. Check out bound and get the target data
+        # start_idx will not be None
+        if start_idx < 0:   # type: ignore
+            start_idx = 0
+
+        if end_idx and end_idx >= len(self.data):
             end_idx = None
         
-        # Get data
-        if start_idx and end_idx:
-            data = self.data.iloc[start_idx: end_idx, :].reset_index(drop=True)
-        else:
-            data = pd.DataFrame()
+        if end_idx:
+            self.can_update = False
+
+        # print('Start idx: {}, end idx: {}'.format(start_idx, end_idx))
+        self.data = self.data.iloc[start_idx:end_idx, :].reset_index(drop=True)
         
-        self.data = data
         
-    def update(self, start_str: Optional[str]=None, end_str: Optional[str]=None):
+    def update(self, start_str: Optional[str]=None, end_str: Optional[str]=None, 
+               start_ms: Optional[int]=None, end_ms: Optional[int]=None):
         """Update slef.data from start_str to end_str
             
         params: 
@@ -175,23 +210,32 @@ class Data:
                         None means start time is self.end_time + 1
             end_str:    end date in readable format. None means now.
         """
-        
-        start_ms, end_ms = self._time_str_to_ms(start_str, end_str)
-        
-        if end_ms > start_ms:
-            klines = get_historical_klines(self.symbol, self.interval, 
-                                           start_ms, end_ms, self.is_futures)
+        if self.can_update:
+            if start_str or end_str:
+                assert start_ms is None and end_ms is None, 'Input type can only be str or int(ms)'
+                start_ms = date_to_milliseconds(start_str) if start_str else None
+                end_ms = date_to_milliseconds(end_str) if end_str else None
             
-            if len(klines) > 0:
-                if os.path.exists(self.file_loc):
-                    # If file exist, append.
-                    klines.to_csv(self.file_loc, mode='a', index=False, header=False)
-                else:
-                    klines.to_csv(self.file_loc, index=False)
+            start_ms, end_ms = self._get_best_time(start_ms, end_ms)
+            
+            if end_ms > start_ms:
+                klines = get_historical_klines(self.symbol, self.interval, 
+                                            start_ms, end_ms, self.is_futures)
                 
-                self.data = self.data.append(klines)
+                if len(klines) > 0:
+                    if os.path.exists(self.file_loc):
+                        # If file exist, append.
+                        klines.to_csv(self.file_loc, mode='a', index=False, header=False)
+                    else:
+                        klines.to_csv(self.file_loc, index=False)
+                    
+                    self.data = self.data.append(klines)
+            else:
+                # end <= start, no need to update
+                pass
         else:
-            print('end <= start, no need to update')
+            # End of data changed. Can not update.
+            pass
 
     def start_time_str(self) -> str:
         start_ms = self.start_time()
@@ -227,8 +271,30 @@ class Data:
 
     def len(self) -> int:
         return len(self.data)
+    
+    def get_columns(self, names: List[DataElements]):
+        return [self.data[n.value] for n in names]
+
+    def get_value(self, name: DataElements, i: int) -> float:
+        assert i < self.len()
+        return self.data[name.value].values[i]
+
+    def time_list_to_idx(self, time_list:List) -> List:
+        self._update_time2idx()
+        for i in range(len(time_list)):
+            time_list[i] = self.time2index.loc[time_list[i] // self.interval_ms * self.interval_ms, 'index']
+        return time_list
+
+    def time_to_idx(self, time: int):
+        return self.time2index.loc[time // self.interval_ms * self.interval_ms, 'index']
 
     # ====================================== internal ======================================
+
+    def _update_time2idx(self):
+        if len(self.time2index) != len(self.data):
+            self.time2index = self.data[DataElements.OPEN_TIME.value]
+            self.time2index = self.time2index.reset_index()
+            self.time2index = self.time2index.set_index(DataElements.OPEN_TIME.value)
 
     def _get_init_data(self) -> pd.DataFrame:
         if os.path.exists(self.file_loc):
@@ -238,41 +304,37 @@ class Data:
 
         return data
         
-    def _time_str_to_ms(self, start_str, end_str):
-        # if an end time was passed convert it
-        if end_str:
-            end_ms = date_to_milliseconds(end_str)
-        else:
+    def _get_best_time(self, start_ms: Optional[int], end_ms: Optional[int]):
+        # If not set end_ms, default is now
+        if end_ms is None:
             end_ms = date_to_milliseconds('now')
 
-        # convert our date strings to milliseconds
         last_end = self.end_time()
         if last_end:
             # Date is exist before, start is next time of saved data.
             start_ms = last_end + 1
         else:
-            if start_str:
-                start_ms = date_to_milliseconds(start_str)
-            else:
+            if not start_ms:
                 # Date is not exist, get 1000 data
                 total_ms = 1000 * interval_to_milliseconds(self.interval)
                 start_ms = end_ms + 1 - total_ms
+                print('Not set the start, default get 1000 data before now')
         
         return start_ms, end_ms
 
 
 def main():
     # symbol = "BTCUSDT"
-    symbol = "BTCBUSD"
-    # symbol = "LUNABUSD"
+    # symbol = "BTCBUSD"
+    symbol = "LUNA2BUSD"
     # symbol = "LUNCBUSD"
     interval = DataType.INTERVAL_1MINUTE
-    # start = "2022/05/31 14:11 UTC+8"
-    start = "140 days ago UTC+8"
+    start = "2022/06/1 11:05 UTC+8"
+    # start = "140 days ago UTC+8"
     end = "1 minute ago UTC+8"
 
-    # data = Data(symbol, interval, is_futures=True)
-    data = Data(symbol, interval)
+    data = Data(symbol, interval, is_futures=True)
+    # data = Data(symbol, interval)
     data.update(start, end)
     # data.replace_data_with_date("2019/8/23 UTC+8", "2020/3/1 UTC+8")
     print('Start time is {}'.format(data.start_time_str()))

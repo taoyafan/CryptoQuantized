@@ -105,7 +105,6 @@ class PolicyBase(ABC):
     def calc_opt_point(self):
         hold_state = 'empty'  # full 表示满仓，empty 表示空仓
         init_price = self.data['close'].iloc[0]
-        self.log_enable = False
         for i in range(1, len(self.data)):
             if self.log_enable == False and (i+1) % 1000 == 0:
                 print('Idx: {} / {}'.format(i+1, len(self.data)), end='\r')
@@ -159,7 +158,7 @@ class PolicyBase(ABC):
         print('Init price = {}, current price = {}'.format(self.data['close'].iloc[0], self.data['close'].iloc[-1]))
         print('Earn = {:.7f}%, base line = {:.7f}%, '.format(
             self.earn_curve.value[-1] * 100 - 100,
-            (self.data['high'].iloc[-1] - self.data['low'][0]) / self.data['close'].iloc[0] * 100))
+            (self.data['close'].iloc[-1] - self.data['close'][0]) / self.data['close'].iloc[0] * 100))
 
         n_buy = len(self.opt_point.buy.value)
         n_sell = len(self.opt_point.sell.value)
@@ -215,8 +214,9 @@ def main():
     # luna = Data('BTCUSDT', DataType.INTERVAL_1MINUTE, "2022/3/1 UTC+8", "2020/5/1 UTC+8").data
     # luna = Data('BTCUSDT', DataType.INTERVAL_1MINUTE).data.iloc[-50000:, :].reset_index(drop=True)
     # luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE).data.iloc[-100000:, :].reset_index(drop=True)
-    luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE, is_futures=True).data.iloc[-1000:, :].reset_index(drop=True)
-    # luna = Data('LUNABUSD', DataType.INTERVAL_1MINUTE).data
+    # luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE, num=100000, is_futures=True).data
+    # luna = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True).data
+    luna = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, num=1000, is_futures=True).data
     # luna = Data('LUNCBUSD', DataType.INTERVAL_1MINUTE).data
     luna['open_time'] = luna['open_time'].map(milliseconds_to_date)
 

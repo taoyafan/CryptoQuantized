@@ -142,8 +142,8 @@ class Datum:
 
         else:
             invert_trend_point_num = self.up_num if self.state == self.DOWN else self.down_num
-            if invert_trend_point_num >= 2 or (invert_trend_point_num >= 1 and self.consolidate_num >= 2):
-            # if invert_trend_point_num >= 3:
+            # if invert_trend_point_num >= 2 or (invert_trend_point_num >= 1 and self.consolidate_num >= 2):
+            if self.up_num + self.down_num + self.consolidate_num >= 2:
                 # 如果趋势延续至少3次，或至少延续2次且有两次盘整
                 self.update_datum_line()
                 next_fake_point_type = 'low' if self.state == self.UP else 'high' 
@@ -214,8 +214,6 @@ class Datum:
                 self.down_num = 0
             else:
                 self.consolidate_num += 1
-                self.up_num = 0
-                self.down_num = 0
 
     def _is_trend_continued(self) -> bool:
         # Found a lower low value when search local low point
