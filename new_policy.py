@@ -85,7 +85,7 @@ class Policy(ABC):
             self.sell_state.log('sell', 'buy')
 
     @abstractmethod
-    def update(self, high: float, low: float, timestamp: int) -> None:
+    def update(self, high: float, low: float, open: float, close: float, timestamp: int) -> None:
         return
     
     @abstractmethod
@@ -129,7 +129,8 @@ class PolicyBreakThrough(Policy):
         self.last_bottom = 0
         self.fake_bottom = float('inf')
         self.fake_bottom_idx = 0
-        self.nums = 0   # num after found the last top or bottom
+        self.nums_after_top = 0   # num after found the last top
+        self.nums_after_bottom = 0   # num after found the last bottom
         self.direction = self.DOWN
 
         self.policy_private_log = policy_private_log
@@ -138,8 +139,9 @@ class PolicyBreakThrough(Policy):
             self.tops = IdxValue()
             self.bottoms = IdxValue()
 
-    def update(self, high: float, low: float, timestamp: int):
-        self.nums += 1
+    def update(self, high: float, low: float, open: float, close: float, timestamp: int):
+        self.nums_after_top += 1
+        self.nums_after_bottom += 1
         
         if self.direction == self.UP:
             # Search top
@@ -147,19 +149,27 @@ class PolicyBreakThrough(Policy):
                 # Trend continue to move up, update fake top
                 self.fake_top = high
                 self.fake_top_idx = timestamp
-                self.nums = 0
-            else:
-                # if low < self.fake_bottom:
-                #     self.fake_bottom = low
-                #     self.fake_bottom_idx = timestamp
+                self.nums_after_top = 0
                 
-                if self.nums >= 2:
-                    # Trend reverses
-                    self.direction = self.DOWN
-                    self.nums = 0
-                    self.last_top = self.fake_top
+                if close < open:
+                    self.fake_bottom = low
+                    self.nums_after_bottom = 0
+                else:
+                    self.nums_after_bottom = -1
+                    self.fake_bottom = float('inf')
+                self.fake_bottom_idx = timestamp
+            else:
+                if low < self.fake_bottom:
                     self.fake_bottom = low
                     self.fake_bottom_idx = timestamp
+                    self.nums_after_bottom = 0
+                
+                if self.nums_after_top >= 2:
+                    # Trend reverses
+                    self.direction = self.DOWN
+                    self.nums_after_top = 0
+                    self.last_top = self.fake_top
+                    self.fake_top = 0
 
                     if self.policy_private_log:
                         self._log('{}: Found new top, price: {}'.format(milliseconds_to_date(timestamp), self.last_top))
@@ -172,19 +182,28 @@ class PolicyBreakThrough(Policy):
                 # Trend continuely to move down, update fake bottom
                 self.fake_bottom = low
                 self.fake_bottom_idx = timestamp
-                self.nums = 0
+                self.nums_after_bottom = 0
+
+                if close > open:
+                    self.fake_top = high
+                    self.nums_after_top = 0
+                else:
+                    self.fake_top = 0
+                    self.nums_after_top = -1
+                self.fake_top_idx = timestamp
+
             else:
-                # if high > self.fake_top:
-                #     self.fake_top = high
-                #     self.fake_top_idx = timestamp
-                
-                if self.nums >= 2:
-                    # Trend reverses
-                    self.direction = self.UP
-                    self.nums = 0
-                    self.last_bottom = self.fake_bottom
+                if high > self.fake_top:
                     self.fake_top = high
                     self.fake_top_idx = timestamp
+                    self.nums_after_top = 0
+                
+                if self.nums_after_bottom >= 2:
+                    # Trend reverses
+                    self.direction = self.UP
+                    self.nums_after_bottom = 0
+                    self.last_bottom = self.fake_bottom
+                    self.fake_bottom = float('inf')
                     
                     if self.policy_private_log:
                         self._log('{}: Found new bottom, price: {}'.format(milliseconds_to_date(timestamp), self.last_bottom))
