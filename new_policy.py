@@ -18,7 +18,6 @@ class Policy(ABC):
         self.analyze_en = analyze_en    # Whether save analyze data
         
         if self.analyze_en:
-            self.last_exe_params: PolicyToAdaptor = PolicyToAdaptor(0, PolicyToAdaptor.ABOVE, '')
             self.buy_state = OptState(self.buy_reasons, self.sell_reasons)
             self.sell_state = OptState(self.sell_reasons, self.buy_reasons)
 
@@ -31,11 +30,10 @@ class Policy(ABC):
         if actual_price:
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("Buy with price is {}, expect: {}, time: {}".format(actual_price, params_buy.price, time_str))
+            self._log("\n{}: buy, price = {}, expect = {}".format(time_str, actual_price, params_buy.price))
 
             # Save analyze info
             if self.analyze_en:
-                self.last_exe_params = params_buy
                 self.buy_state.add_part(adaptor.get_timestamp(), params_buy.price, actual_price, params_buy.reason)
 
         return is_executed
@@ -44,13 +42,12 @@ class Policy(ABC):
         # Return whether sold
         params_sell = self._get_params_sell()
         actual_price = adaptor.sell(params_sell)
-        
+
         is_executed = False
         if actual_price:
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("Sell with price is {}, expect: {}, time: {}".format(actual_price, params_sell.price, time_str))
-            self._log()
+            self._log("{}: sell, price = {}, expect = {}".format(time_str, actual_price, params_sell.price))
 
             # Save analyze info
             if self.analyze_en:
@@ -60,7 +57,7 @@ class Policy(ABC):
                 self.buy_state.add_left_part(params_sell.reason, earn)
                 self.sell_state.add_all(adaptor.get_timestamp(), params_sell.price, actual_price, 
                                         params_sell.reason, buy_reason, earn)
-                self.last_exe_params = params_sell
+                # self._log('Earn without fee: {}'.format(earn))
 
         return is_executed
 
@@ -76,6 +73,13 @@ class Policy(ABC):
             return IdxValue(self.sell_state.points_idx, self.sell_state.points_actual_price)
         else:
             raise ValueError
+
+    def log_analyzed_info(self):
+        if self.analyze_en:
+            print('\nPolicy analyze (without fee):')
+            self.buy_state.log('buy', 'sell')
+            print()
+            self.sell_state.log('sell', 'buy')
 
     @abstractmethod
     def update(self, high: float, low: float, timestamp: int) -> None:
@@ -116,10 +120,10 @@ class PolicyBreakThrough(Policy):
 
     def __init__(self, log_en: bool=True, analyze_en: bool=True):
         super().__init__(log_en, analyze_en)
-        self.last_top = 0
+        self.last_top = float('inf')
         self.fake_top = 0
         self.fake_top_idx = 0
-        self.last_bottom = float('inf')
+        self.last_bottom = 0
         self.fake_bottom = float('inf')
         self.fake_bottom_idx = 0
         self.nums = 0   # num after found the last top or bottom

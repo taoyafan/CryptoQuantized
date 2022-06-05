@@ -1,7 +1,7 @@
 from typing import Dict, Optional, List, Set
 from binance.client import Client
 from enum import Enum, auto
-
+import numpy as np 
 class IdxValue:
     def __init__(self, idx: Optional[List]=None, value: Optional[List]=None):
         self.idx = idx if idx else []
@@ -77,7 +77,6 @@ class OptState:
         self.earns[self.last_reason][other_reason].append(earn)
         self.pair_unfinished = False
 
-
     def add_all(self, idx: int, expect_price: float, actual_price: float, reason: str, other_reason: str, earn: float):
         """ Add state of a finished option, i.e. buy or sell
         
@@ -101,6 +100,39 @@ class OptState:
         self.points_idx.append(idx)
         self.points_expect_price.append(expect_price)
         self.points_actual_price.append(actual_price)
+
+    def log(self, name: str, other_name: str):
+        
+        earns_for_all = []
+        nums_for_all = 0
+        for r in self.reasons:
+            earns_for_reason = []
+            nums_for_reason = 0
+            print('- For {} reason {}: '.format(name, r))
+
+            for o_r in self.other_reasons:
+                earns = self.earns[r][o_r]
+                print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                    other_name, o_r, self.nums[r][o_r], 
+                    len([e for e in earns if e > 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
+                ))
+                earns_for_reason += earns
+                nums_for_reason += self.nums[r][o_r]
+            
+            if len(self.other_reasons) > 1:
+                print('- Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                    nums_for_reason, len([e for e in earns_for_reason if e > 0]), 
+                    np.mean(earns_for_reason)*100, max(earns_for_reason)*100, np.median(earns_for_reason), min(earns_for_reason)*100
+                ))
+            earns_for_all += earns_for_reason
+            nums_for_all += nums_for_reason
+
+        if len(self.reasons) > 1:
+            print('Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                nums_for_all, len([e > 0 for e in earns_for_all]), 
+                    np.mean(earns_for_all)*100, max(earns_for_all)*100, np.median(earns_for_all), min(earns_for_all)*100
+            ))
+
 
 class DataElements(Enum):
     # The order MUST be same as the API returns

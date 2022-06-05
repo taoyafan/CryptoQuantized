@@ -145,7 +145,7 @@ class Datum:
             # if invert_trend_point_num >= 2 or (invert_trend_point_num >= 1 and self.consolidate_num >= 2):
             if self.up_num + self.down_num + self.consolidate_num >= 2:
                 # 如果趋势延续至少3次，或至少延续2次且有两次盘整
-                self.update_datum_line()
+                # self.update_datum_line()
                 next_fake_point_type = 'low' if self.state == self.UP else 'high' 
                 self.datum[next_fake_point_type]['idx'].append(self.i)
                 self.datum[next_fake_point_type]['value'].append(self.data[next_fake_point_type][self.i])

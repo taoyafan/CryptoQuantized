@@ -199,10 +199,10 @@ def plot(data: Data, policy: PolicyBreakThrough, state: AccountState):
         point.idx = data.time_list_to_idx(point.idx)
 
     points = [
-        PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='top'),
-        PricePlot.Points(idx=bottoms.idx, value=bottoms.value, s=30, c='y', label='bottoms'),
         PricePlot.Points(idx=buy_points.idx, value=buy_points.value, s=90, c='r', label='buy'),
         PricePlot.Points(idx=sell_points.idx, value=sell_points.value, s=90, c='g', label='sell'),
+        PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='top'),
+        PricePlot.Points(idx=bottoms.idx, value=bottoms.value, s=30, c='y', label='bottoms'),
     ]
     fig.plot(plot_candle=data.len()<=1100, points=points, earn_point=earn_point)
 
@@ -210,51 +210,33 @@ def plot(data: Data, policy: PolicyBreakThrough, state: AccountState):
 def final_log(data: Data, policy: Policy, state: AccountState):
     print()
     print()
-    print('First day is {}, finally day = {}'.format(data.start_time_str(), data.end_time_str()))
+    print('Time begin from {} to {}'.format(data.start_time_str(), data.end_time_str()))
     
     init_price = data.get_value(DataElements.CLOSE, 0)
     current_price = data.get_value(DataElements.CLOSE, -1)
     print('Init price = {}, current price = {}'.format(
         init_price, current_price))
-    print('Earn = {:.2f}%, base line = {:.2f}%, '.format(
+    print('Earn = {:.3f}%, base line = {:.3f}%, '.format(
         state.earn_rate(current_price) * 100,
         (current_price - init_price) / init_price * 100
     ))
 
-    # policy.get_points()
-    # n_buy = len(self.opt_point.buy.value)
-    # n_sell = len(self.opt_point.sell.value)
-    # print('n_buy = {}, n_sell = {}'.format(n_buy, n_sell))
-    # print('Sum of commission = {:.7f}%'.format((n_buy + n_sell) * 0.025))
-    # print('Successful rate = {:.7f}%'.format(
-    #     sum([self.opt_point.sell.value[i] > self.opt_point.buy.value[i] for i in range(n_sell)])
-    #     / (n_sell * 100 + 1e-5)))
-
-    # print()
-    # for buy_reason in self.buy_state:
-    #     print('买入原因：{}, 个数：{}, 成功个数：{}, 成功率:{}, 总成功率：{:.7f}'.format(
-    #         buy_reason['name'], buy_reason['num'], buy_reason['successful_num'],
-    #         [buy_reason['successful_num'][i] / (buy_reason['num'][i]+1e-5) for i in range(len(self.sell_state))],
-    #         sum(buy_reason['successful_num']) / (sum(buy_reason['num'])+1e-5)))
-
-    # for sell_reason in self.sell_state:
-    #     print('卖出原因：{}, 个数：{}, 成功个数：{}, 成功率:{}, 总成功率：{:.7f}'.format(
-    #         sell_reason['name'], sell_reason['num'], sell_reason['successful_num'],
-    #         [sell_reason['successful_num'][i] / (sell_reason['num'][i]+1e-5) for i in range(len(self.buy_state))],
-    #         sum(sell_reason['successful_num']) / (sum(sell_reason['num'])+1e-5)))
+    policy.log_analyzed_info()
 
 
 if __name__ == "__main__":
     usd_name = 'BUSD'
-    token_name='LUNA2'
-    # token_name = 'BTC'
+    # token_name='LUNA2'
+    token_name = 'BTC'
     log_en = False
     analyze_en = True
 
-    # data = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True)
-    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=1000, is_futures=True)
+    print('Loading data')
+    # data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, start_str="2022-05-28 17:12:00 UTC+8", num=100, is_futures=True)
+    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=100000, is_futures=True)
+    print('Loading data finished')
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
-                               leverage=1, data=data, fee=0.0002, log_en=log_en)
+                               leverage=1, data=data, fee=0.0001, log_en=log_en)
     policy = PolicyBreakThrough(log_en=log_en, analyze_en=analyze_en)
 
     state = main(adaptor, policy, log_en)

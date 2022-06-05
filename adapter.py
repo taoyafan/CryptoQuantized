@@ -420,7 +420,9 @@ class AdaptorSimulator(Adaptor):
 
     def _can_buy_or_sell(self, params: PolicyToAdaptor) -> Optional[float]:
         # Return executed price, or None
-        if params.price < self.get_price(self.HIGH) and params.price > self.get_price(self.LOW):
+        can_exe = (params.direction == params.BELLOW and self.get_price(self.LOW) < params.price) or (
+                   params.direction == params.ABOVE and self.get_price(self.HIGH) > params.price)
+        if can_exe:
             opt_fun = min if params.direction == params.BELLOW else max
             price = opt_fun(params.price, self.get_price(self.OPEN))
         else:

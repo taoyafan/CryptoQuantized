@@ -61,7 +61,7 @@ class PolicyBase(ABC):
         
         if self.log_enable:
             print('\n{}: buy, price = {:.7f}'.format(self.data['timestamp'][i], price))
-            print(log)
+            # print(log)
         
         return 'full', earn
 
@@ -86,8 +86,8 @@ class PolicyBase(ABC):
         success = True if self.opt_point.sell.value[-1] > self.opt_point.buy.value[-1] else False
         if self.log_enable:
             print('{}: sell, price = {:.7f}'.format(self.data['timestamp'][i], price))
-            print(log)
-            print('单笔交易盈利' if success else '单笔交易亏损')
+            # print(log)
+            # print('单笔交易盈利' if success else '单笔交易亏损')
         return 'empty', earn, success
 
     @abstractmethod
@@ -109,7 +109,6 @@ class PolicyBase(ABC):
             if self.log_enable == False and (i+1) % 1000 == 0:
                 print('Idx: {} / {}'.format(i+1, len(self.data)), end='\r')
 
-            self.datum_class.step()
             last_price = self.data['close'].iloc[i-1]
             curr_price = self.data['close'].iloc[i]
             
@@ -141,6 +140,8 @@ class PolicyBase(ABC):
                     hold_state, earn = self.buy(i, buy_price, up_down, log)
                     self.earn_curve.add(i-1, self.earn_curve.value[-1])
                     self.earn_curve.add(i, earn)
+
+            self.datum_class.step()
 
         self.print_log()
 
@@ -214,13 +215,13 @@ def main():
     # luna = Data('BTCUSDT', DataType.INTERVAL_1MINUTE, "2022/3/1 UTC+8", "2020/5/1 UTC+8").data
     # luna = Data('BTCUSDT', DataType.INTERVAL_1MINUTE).data.iloc[-50000:, :].reset_index(drop=True)
     # luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE).data.iloc[-100000:, :].reset_index(drop=True)
-    # luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE, num=100000, is_futures=True).data
+    luna = Data('BTCBUSD', DataType.INTERVAL_1MINUTE, num=100000, is_futures=True).data
     # luna = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True).data
-    luna = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, num=1000, is_futures=True).data
+    # luna = Data('LUNA2BUSD', DataType.INTERVAL_1MINUTE, num=1000, is_futures=True).data
     # luna = Data('LUNCBUSD', DataType.INTERVAL_1MINUTE).data
     luna['open_time'] = luna['open_time'].map(milliseconds_to_date)
 
-    policy = Policy1(luna['open'], luna['high'], luna['low'], luna['close'], luna['open_time'], 0.0002, log_enable=False)
+    policy = Policy1(luna['open'], luna['high'], luna['low'], luna['close'], luna['open_time'], 0.0000, log_enable=False)
     policy.calc_opt_point()
     datum = policy.datum_class.datum
     datum_lines = policy.datum_class.datum_lines
