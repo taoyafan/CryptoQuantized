@@ -9,7 +9,7 @@ from utils import *
 from base_types import DataType, DataElements
 
 
-def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None, 
+def get_historical_klines(client: Client, symbol, interval: DataType, start_ts, end_ts=None, 
                           is_futures: Optional[bool]=False) -> pd.DataFrame:
     """Get Historical Klines from Binance
 
@@ -29,13 +29,6 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None,
     :return: pd.DataFrame
 
     """
-    proxies = {
-        "http": "http://127.0.0.1:8900",
-        "https": "http://127.0.0.1:8900",
-    }
-
-    # create the Binance client, no need for api key
-    client = Client("", "",  {'proxies': proxies})
 
     # init our list
     output_data = []
@@ -76,7 +69,8 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None,
             start_ts += timeframe
 
         idx += 1
-        print('Idx: {} / {}'.format(idx, total), end='\r')
+        if total > 5:
+            print('Idx: {} / {}'.format(idx, total), end='\r')
         # check if we received less than the required limit and exit the loop
         if len(temp_data) < limit:
             # exit the while loop
@@ -86,7 +80,8 @@ def get_historical_klines(symbol, interval: DataType, start_ts, end_ts=None,
         if idx % 3 == 0:
             time.sleep(1)
         
-    print()
+    if total > 5:
+        print()
     output_data = pd.DataFrame(
         output_data, columns = [e.value for e in DataElements] + ['ignore'])
     
@@ -118,7 +113,7 @@ class Data:
             Others:
                 is_futures: is data is futures
         """
-        
+        self.client = None
         self.symbol = symbol
         self.interval = interval
         self.interval_ms = interval_to_milliseconds(self.interval)
@@ -138,6 +133,9 @@ class Data:
 
 
     # ====================================== public ======================================
+
+    def set_client(self, client: Client):
+        self.client = client
 
     # May change self.data
     def replace_data_with_range(self, start_str: Optional[str]=None, end_str: Optional[str]=None, 
@@ -219,7 +217,16 @@ class Data:
             start_ms, end_ms = self._get_best_time(start_ms, end_ms)
             
             if end_ms > start_ms:
-                klines = get_historical_klines(self.symbol, self.interval, 
+                if self.client is None:
+                    proxies = {
+                        "http": "http://127.0.0.1:8900",
+                        "https": "http://127.0.0.1:8900",
+                    }
+
+                    # create the Binance client, no need for api key
+                    self.client = Client("", "",  {'proxies': proxies})
+
+                klines = get_historical_klines(self.client, self.symbol, self.interval, 
                                             start_ms, end_ms, self.is_futures)
                 
                 if len(klines) > 0:
@@ -277,7 +284,7 @@ class Data:
 
     def get_value(self, name: DataElements, i: int) -> float:
         assert i < self.len()
-        return self.data[name.value].values[i]
+        return float(self.data[name.value].values[i])
 
     def time_list_to_idx(self, time_list:List) -> List:
         self._update_time2idx()

@@ -34,15 +34,16 @@ class AccountState:
         else:
             return False
     
-    def update(self, timestamp: int) -> None:
-        self.balance: float = self.adaptor.balance()
-        self.pos_amount: float = self.adaptor.pos_amount()
-        
+    def update_analyzed_info(self, timestamp: int) -> None:
         # Save analyze info
         if self.analyze_en:
             self.update_times.append(timestamp)
             self.balance_history.append(self.balance)
             self.pos_amount_history.append(self.pos_amount)
+
+    def update(self) -> None:
+        self.balance: float = self.adaptor.balance()
+        self.pos_amount: float = self.adaptor.pos_amount()
     
     def earn_rate(self, price: float) -> float:
         # 1 represent 100% means no earn
@@ -132,7 +133,7 @@ class AccountState:
             
 
 
-def main(adaptor: Adaptor, policy: Policy, log_en=False):
+def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
     state = AccountState(adaptor, analyze_en=policy.analyze_en)
 
     i = 0
@@ -142,9 +143,9 @@ def main(adaptor: Adaptor, policy: Policy, log_en=False):
 
         # For each step
         price = adaptor.get_price()
+        is_trade = False
         while True:
             # For dynamic price in one step
-            is_trade = False
             if state.can_buy():
                 is_trade = policy.try_to_buy(adaptor)
             elif state.can_sell():
@@ -152,20 +153,24 @@ def main(adaptor: Adaptor, policy: Policy, log_en=False):
             else:
                 is_trade = False
 
+            # If trade, update             
+            if is_trade:
+                state.update()
+
             if adaptor.is_next_step():
                 break
 
             # Wait a new price
             new_price = adaptor.get_price()
             while new_price == price:
-                time.sleep(0.2)
+                time.sleep(0.5)
                 new_price = adaptor.get_price()
             price = new_price
         
         last_timestamp = adaptor.get_timestamp()-60000
         
         if is_trade:
-            state.update(last_timestamp)
+            state.update_analyzed_info(last_timestamp)
 
         policy.update(high = adaptor.get_latest_kline_value(DataElements.HIGH),
                       low = adaptor.get_latest_kline_value(DataElements.LOW),
@@ -224,24 +229,62 @@ def final_log(data: Data, policy: Policy, state: AccountState):
     policy.log_analyzed_info()
 
 
-if __name__ == "__main__":
+def real_trade():
     usd_name = 'BUSD'
-    # token_name='LUNA2'
-    token_name = 'BTC'
+    token_name='LUNA2'
+    log_en = True
+    analyze_en = True
+
+    policy_private_log = True
+
+    # Updata data to latest
+    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, is_futures=True)
+    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en)
+    data.set_client(adaptor.client)
+    data.update(end_str="1 minute ago UTC+8")
+    data.replace_data_with_range(num=20)
+    print('Data start with {}, end with {}'.format(data.start_time_str(), data.end_time_str()))
+
+    # Update policy
+    policy = PolicyBreakThrough(log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log)
+    for i in range(data.len()):
+        policy.update(high = data.get_value(DataElements.HIGH, i),
+                      low = data.get_value(DataElements.LOW, i),
+                      timestamp = int(data.get_value(DataElements.OPEN_TIME, i)))
+
+    main_loop(adaptor, policy, log_en)
+
+
+def simulated_trade():
+    usd_name = 'BUSD'
+    token_name='LUNA2'
+    # token_name = 'BTC'
     log_en = False
     analyze_en = True
 
     print('Loading data')
-    # data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, start_str="2022-05-28 17:12:00 UTC+8", num=100, is_futures=True)
-    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=100000, is_futures=True)
+    # data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True)
+    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=100, is_futures=True)
     print('Loading data finished')
+
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
-                               leverage=1, data=data, fee=0.0001, log_en=log_en)
+                               leverage=1, data=data, fee=0.0000, log_en=log_en)
     policy = PolicyBreakThrough(log_en=log_en, analyze_en=analyze_en)
 
-    state = main(adaptor, policy, log_en)
+    start = time.time()
+    state = main_loop(adaptor, policy, log_en)
+    end = time.time()
+    print('Main loop execution time is {:.3f}s'.format(end - start))
+
     final_log(data, policy, state)
     if analyze_en:
         plot(data, policy, state)
 
+
+if __name__ == "__main__":
+    real = False
+    if real:
+        real_trade()
+    else:
+        simulated_trade()
     print("Finished")

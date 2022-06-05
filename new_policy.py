@@ -3,6 +3,7 @@ from typing import Dict, Optional, List, Set
 from enum import Enum, auto
 from base_types import IdxValue, PolicyToAdaptor, OptState
 from adapter import Adaptor
+from utils import milliseconds_to_date
 
 # Base class of policy
 class Policy(ABC):
@@ -16,6 +17,7 @@ class Policy(ABC):
     def __init__(self, log_en: bool, analyze_en):
         self.log_en = log_en            # Whether log
         self.analyze_en = analyze_en    # Whether save analyze data
+        self.last_buy_price = float('inf')
         
         if self.analyze_en:
             self.buy_state = OptState(self.buy_reasons, self.sell_reasons)
@@ -28,6 +30,7 @@ class Policy(ABC):
 
         is_executed = False
         if actual_price:
+            self.last_buy_price = actual_price
             is_executed = True
             time_str = adaptor.get_time_str()
             self._log("\n{}: buy, price = {}, expect = {}".format(time_str, actual_price, params_buy.price))
@@ -50,14 +53,14 @@ class Policy(ABC):
             self._log("{}: sell, price = {}, expect = {}".format(time_str, actual_price, params_sell.price))
 
             # Save analyze info
+            earn_rate = (actual_price - self.last_buy_price) / self.last_buy_price   # Not include swap fee
+            self._log('Earn rate without fee: {:.3f}%'.format(earn_rate*100))
+            
             if self.analyze_en:
-                buy_price = self.buy_state.points_actual_price[-1]
                 buy_reason = self.buy_state.last_reason
-                earn = (actual_price - buy_price) / buy_price   # Not include swap fee
-                self.buy_state.add_left_part(params_sell.reason, earn)
+                self.buy_state.add_left_part(params_sell.reason, earn_rate)
                 self.sell_state.add_all(adaptor.get_timestamp(), params_sell.price, actual_price, 
-                                        params_sell.reason, buy_reason, earn)
-                # self._log('Earn without fee: {}'.format(earn))
+                                        params_sell.reason, buy_reason, earn_rate)
 
         return is_executed
 
@@ -118,7 +121,7 @@ class PolicyBreakThrough(Policy):
     UP: Direction = Direction.UP
     DOWN = Direction.DOWN
 
-    def __init__(self, log_en: bool=True, analyze_en: bool=True):
+    def __init__(self, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False):
         super().__init__(log_en, analyze_en)
         self.last_top = float('inf')
         self.fake_top = 0
@@ -128,6 +131,8 @@ class PolicyBreakThrough(Policy):
         self.fake_bottom_idx = 0
         self.nums = 0   # num after found the last top or bottom
         self.direction = self.DOWN
+
+        self.policy_private_log = policy_private_log
 
         if self.analyze_en:
             self.tops = IdxValue()
@@ -156,6 +161,9 @@ class PolicyBreakThrough(Policy):
                     self.fake_bottom = low
                     self.fake_bottom_idx = timestamp
 
+                    if self.policy_private_log:
+                        self._log('{}: Found new top, price: {}'.format(milliseconds_to_date(timestamp), self.last_top))
+
                     if self.analyze_en:
                         self.tops.add(self.fake_top_idx, self.last_top)
         else:
@@ -178,6 +186,9 @@ class PolicyBreakThrough(Policy):
                     self.fake_top = high
                     self.fake_top_idx = timestamp
                     
+                    if self.policy_private_log:
+                        self._log('{}: Found new bottom, price: {}'.format(milliseconds_to_date(timestamp), self.last_bottom))
+
                     if self.analyze_en:
                         self.bottoms.add(self.fake_bottom_idx, self.last_bottom)
 

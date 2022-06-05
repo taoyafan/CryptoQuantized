@@ -99,12 +99,12 @@ class AdaptorBinance(Adaptor):
         self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies})
         self._update_account_info()
         self.time_minute = self._get_time_minute()
+        self.data = data
 
     def balance(self, refresh=False):
         if refresh:
             self._update_account_info()
         ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
-        # self._log('ust_amount: {}'.format(ust_amount))
         return float(ust_amount['availableBalance'])
 
     def pos_amount(self, refresh=False):
@@ -217,12 +217,17 @@ class AdaptorBinance(Adaptor):
 
         while True:
             # Choose the best price
-            price = self.get_price(side)
+            orderbook = self._get_orderbook()
+            side_price = float(orderbook['bidPrice']) if side == self.OrderSide.BUY else float(orderbook['askPrice'])
+            other_side_price = float(orderbook['askPrice']) if side == self.OrderSide.BUY else float(orderbook['bidPrice'])
+
+            delta = int(side_price * 1e7) - int(other_side_price * 1e7)
+            price = (int(side_price * 1e7) + delta) / 1e7
+
             # Create limit order with best price
             order = self._order_limit(side, left_quantity, price)
-            self._log('Best price is {:.2f}'.format(price))
+            self._log('Best price is {:.4f}'.format(price))
             if self.log_en:
-                orderbook = self._get_orderbook()
                 orderbook['time'] = milliseconds_to_date(orderbook['time'])
                 print(orderbook)
             
@@ -231,25 +236,25 @@ class AdaptorBinance(Adaptor):
                 
                 # 1. Wait until fully executed or price changed
                 while True:
-                    time.sleep(1)
+                    time.sleep(0.5)
                     executed_amount = self._get_order_executed_amount(order['orderId'])
                     if executed_amount == left_quantity:
                         # Fully executed, then break
-                        self._log('Fully executed, then break')
+                        # self._log('Fully executed, then break')
                         break
                     else:
                         # If not fully executed, check the price
                         if self.get_price(side) != price:
                             # Price changed, no need to wait, break 
-                            self._log('Price changed, no need to wait, break')
+                            # self._log('Price changed, no need to wait, break')
                             break
 
                 # 2. Check whether cancel order, and get latest exe amount
                 if executed_amount != left_quantity:
                     # Price changed and not fully executed, cancel it and create a new order.
                     # Note that it may be different of the exe amount between when cancel and prior check
-                    self._log('executed_amount is {}, not equal to left_quantity {}, Cancel the order'.format(
-                        executed_amount, left_quantity))
+                    # self._log('executed_amount is {}, not equal to left_quantity {}, Cancel the order'.format(
+                    #     executed_amount, left_quantity))
                     try:
                         executed_amount = self._cancel_order(order['orderId'])
                     except BinanceAPIException:
