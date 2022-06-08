@@ -25,10 +25,11 @@ class PolicyToAdaptor:
     ABOVE = directionType.ABOVE
     BELLOW = directionType.BELLOW
 
-    def __init__(self, price: float, direction: directionType, reason: str):
+    def __init__(self, price: float, direction: directionType, reason: str, is_order_market: bool=True):
         self.price: float = price
         self.direction: PolicyToAdaptor.directionType = direction
         self.reason = reason
+        self.is_order_market = is_order_market
 
 
 # Buy or sell state

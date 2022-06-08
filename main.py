@@ -163,7 +163,7 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
             # Wait a new price
             new_price = adaptor.get_price()
             while new_price == price:
-                time.sleep(0.5)
+                time.sleep(0.2)
                 new_price = adaptor.get_price()
             price = new_price
         
@@ -173,8 +173,10 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
             state.update_analyzed_info(last_timestamp)
 
         policy.update(high = adaptor.get_latest_kline_value(DataElements.HIGH),
-                      low = adaptor.get_latest_kline_value(DataElements.LOW),
-                      timestamp = last_timestamp)
+                    low = adaptor.get_latest_kline_value(DataElements.LOW),
+                    open = adaptor.get_latest_kline_value(DataElements.OPEN),
+                    close = adaptor.get_latest_kline_value(DataElements.CLOSE),
+                    timestamp = last_timestamp)
         
         # Used for simulator
         if adaptor.is_finished():
@@ -250,6 +252,8 @@ def real_trade():
     for i in range(data.len()):
         policy.update(high = data.get_value(DataElements.HIGH, i),
                       low = data.get_value(DataElements.LOW, i),
+                      open = data.get_value(DataElements.OPEN, i),
+                      close = data.get_value(DataElements.CLOSE, i),
                       timestamp = int(data.get_value(DataElements.OPEN_TIME, i)))
 
     main_loop(adaptor, policy, log_en)
@@ -263,12 +267,12 @@ def simulated_trade():
     analyze_en = True
 
     print('Loading data')
-    # data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True)
-    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=100, is_futures=True)
+    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, start_str="2022/06/02 21:00 UTC+8", is_futures=True)
+    # data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, num=5000, is_futures=True)
     print('Loading data finished')
 
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
-                               leverage=1, data=data, fee=0.0000, log_en=log_en)
+                               leverage=1, data=data, fee=0.001, log_en=log_en)
     policy = PolicyBreakThrough(log_en=log_en, analyze_en=analyze_en)
 
     start = time.time()

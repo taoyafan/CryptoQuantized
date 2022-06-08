@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from socket import timeout
 from typing import Optional
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
@@ -18,6 +19,11 @@ class Adaptor(ABC):
         'LUNA2': 1,
     }
 
+    token_min_price_precision_table = {
+        'BTC': 1,
+        'LUNA2': 4,
+    }
+
     def __init__(self, usd_name, token_name, data:Data, log_en):
         self.usd_name = usd_name
         self.token_name = token_name
@@ -26,6 +32,7 @@ class Adaptor(ABC):
 
         assert token_name in self.token_min_pos_table, 'Not support token'
         self.token_min_pos = self.token_min_pos_table[token_name]
+        self.token_min_price_precision = self.token_min_price_precision_table[token_name]
         self.log_en = log_en
 
     @abstractmethod
@@ -96,7 +103,7 @@ class AdaptorBinance(Adaptor):
             "http": "http://127.0.0.1:8900",
             "https": "http://127.0.0.1:8900",
         }
-        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies})
+        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 120})
         self._update_account_info()
         self.time_minute = self._get_time_minute()
         self.data = data
@@ -135,7 +142,7 @@ class AdaptorBinance(Adaptor):
             params.direction == params.BELLOW and current_price < params.price
         ):
             leverage = self.get_leverage()
-            balance = self.balance()
+            balance = self.balance() * 0.95 # Make sure margin is enough
             pos_amount = leverage * balance / current_price
             # pos_amount must be an integer multiple of self.token_min_pos
             pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
@@ -144,7 +151,10 @@ class AdaptorBinance(Adaptor):
                 pos_amount, self.token_min_pos)
             
             if pos_amount >= self.token_min_pos:
-                executed_price = self._order_limit_best_price(self.BUY, pos_amount, wait_finished=True)
+                if params.is_order_market:
+                    executed_price = self._order_market_wait_finished(self.BUY, pos_amount)
+                else:
+                    executed_price = self._order_limit_best_price(self.BUY, pos_amount, wait_finished=True)
                 self._update_account_info()
             else:
                 executed_price = None
@@ -163,7 +173,10 @@ class AdaptorBinance(Adaptor):
             assert pos_amount > 0, 'Pos amount cannot be 0 when sell'
             
             if pos_amount > 0:
-                executed_price = self._order_limit_best_price(self.OrderSide.BUY, pos_amount, wait_finished=True)
+                if params.is_order_market:
+                    executed_price = self._order_market_wait_finished(self.SELL, pos_amount)
+                else:
+                    executed_price = self._order_limit_best_price(self.SELL, pos_amount, wait_finished=True)
                 self._update_account_info()
             else:
                 executed_price = None 
@@ -221,8 +234,9 @@ class AdaptorBinance(Adaptor):
             side_price = float(orderbook['bidPrice']) if side == self.OrderSide.BUY else float(orderbook['askPrice'])
             other_side_price = float(orderbook['askPrice']) if side == self.OrderSide.BUY else float(orderbook['bidPrice'])
 
-            delta = int(side_price * 1e7) - int(other_side_price * 1e7)
-            price = (int(side_price * 1e7) + delta) / 1e7
+            delta = side_price - other_side_price
+            price = side_price + delta
+            price = round(price, self.token_min_price_precision)
 
             # Create limit order with best price
             order = self._order_limit(side, left_quantity, price)
@@ -244,7 +258,9 @@ class AdaptorBinance(Adaptor):
                         break
                     else:
                         # If not fully executed, check the price
-                        if self.get_price(side) != price:
+                        if (side == self.OrderSide.BUY and self.get_price(side) > other_side_price) or (
+                           (side == self.OrderSide.SELL and self.get_price(side) < other_side_price)
+                        ):
                             # Price changed, no need to wait, break 
                             # self._log('Price changed, no need to wait, break')
                             break
@@ -287,8 +303,24 @@ class AdaptorBinance(Adaptor):
                     side = side.value, 
                     type = self.client.FUTURE_ORDER_TYPE_LIMIT, 
                     quantity = quantity, 
-                    price = price, 
+                    price = round(price, self.token_min_price_precision), 
                     timeInForce = self.client.TIME_IN_FORCE_GTC)
+
+    def _order_market_wait_finished(self, side:OrderSide, quantity:float) -> float:
+        order_info = self._order_market(side, quantity)
+        if self.log_en:
+            orderbook = self._get_orderbook()
+            orderbook['time'] = milliseconds_to_date(orderbook['time'])
+            print(orderbook)
+
+        while True:
+            if order_info['status'] == 'FILLED':
+                break
+            else:
+                time.sleep(0.5)
+                order_info = self.client.futures_get_order(symbol=self.symbol, orderId=order_info['orderId'])
+
+        return float(order_info['avgPrice'])
 
     def _order_market(self, side:OrderSide, quantity:float):
         return self.client.futures_create_order(symbol=self.symbol, side=side.value, 

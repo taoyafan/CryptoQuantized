@@ -33,7 +33,8 @@ class Policy(ABC):
             self.last_buy_price = actual_price
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("\n{}: buy, price = {}, expect = {}".format(time_str, actual_price, params_buy.price))
+            self._log("\n{}: buy, price = {}, expect = {}, loss = {}".format(
+                time_str, actual_price, params_buy.price, (1 - params_buy.price / actual_price)))
 
             # Save analyze info
             if self.analyze_en:
@@ -50,7 +51,8 @@ class Policy(ABC):
         if actual_price:
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("{}: sell, price = {}, expect = {}".format(time_str, actual_price, params_sell.price))
+            self._log("{}: sell, price = {}, expect = {}, loss = {}".format(
+                time_str, actual_price, params_sell.price, (1 - actual_price / params_sell.price)))
 
             # Save analyze info
             earn_rate = (actual_price - self.last_buy_price) / self.last_buy_price   # Not include swap fee
@@ -166,16 +168,19 @@ class PolicyBreakThrough(Policy):
                 
                 if self.nums_after_top >= 2:
                     # Trend reverses
+
+                    if self.policy_private_log:
+                        self._log('{}: Found new top, \tprice: {:.4f}, \tat  {}'.format(
+                            milliseconds_to_date(timestamp), self.fake_top, 
+                            milliseconds_to_date(timestamp - 60000 * self.nums_after_top)))
+
+                    if self.analyze_en:
+                        self.tops.add(self.fake_top_idx, self.fake_top)
+
                     self.direction = self.DOWN
                     self.nums_after_top = 0
                     self.last_top = self.fake_top
                     self.fake_top = 0
-
-                    if self.policy_private_log:
-                        self._log('{}: Found new top, price: {}'.format(milliseconds_to_date(timestamp), self.last_top))
-
-                    if self.analyze_en:
-                        self.tops.add(self.fake_top_idx, self.last_top)
         else:
             # Search bottom
             if low < self.fake_bottom:
@@ -200,16 +205,19 @@ class PolicyBreakThrough(Policy):
                 
                 if self.nums_after_bottom >= 2:
                     # Trend reverses
+                    
+                    if self.policy_private_log:
+                        self._log('{}: Found new bottom, \tprice: {:.4f} \tat  {}'.format(
+                            milliseconds_to_date(timestamp), self.fake_bottom,
+                            milliseconds_to_date(timestamp - 60000 * self.nums_after_bottom)))
+
+                    if self.analyze_en:
+                        self.bottoms.add(self.fake_bottom_idx, self.fake_bottom)
+
                     self.direction = self.UP
                     self.nums_after_bottom = 0
                     self.last_bottom = self.fake_bottom
                     self.fake_bottom = float('inf')
-                    
-                    if self.policy_private_log:
-                        self._log('{}: Found new bottom, price: {}'.format(milliseconds_to_date(timestamp), self.last_bottom))
-
-                    if self.analyze_en:
-                        self.bottoms.add(self.fake_bottom_idx, self.last_bottom)
 
     def _get_params_buy(self) -> PolicyToAdaptor:
         return PolicyToAdaptor(self.last_top, PolicyToAdaptor.ABOVE, 'Default')
