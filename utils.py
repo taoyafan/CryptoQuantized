@@ -1,6 +1,7 @@
 import dateparser
 import pytz
 from datetime import datetime, timedelta
+from typing import Union
 
 from base_types import DataType
 
@@ -29,7 +30,7 @@ def date_to_milliseconds(date_str) -> int:
     else:
         raise ValueError(date_str)
 
-def milliseconds_to_date(ms: int) -> str:
+def milliseconds_to_date(ms: Union[int, float]) -> str:
     """Convert milliseconds to string of local data 
     e.g. 2022-05-21 22:24:18
     """

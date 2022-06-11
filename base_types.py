@@ -25,7 +25,7 @@ class PolicyToAdaptor:
     ABOVE = directionType.ABOVE
     BELLOW = directionType.BELLOW
 
-    def __init__(self, price: float, direction: directionType, reason: str, is_order_market: bool=True):
+    def __init__(self, price: float, direction: directionType, reason: str, is_order_market: bool=False):
         self.price: float = price
         self.direction: PolicyToAdaptor.directionType = direction
         self.reason = reason

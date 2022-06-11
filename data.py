@@ -126,7 +126,7 @@ class Data:
         
         # Whether can call update method
         self.can_update = True
-        if start_idx or end_str or start_idx or end_idx or num:
+        if start_str or end_str or start_idx or end_idx or num:
             self.replace_data_with_range(start_str, end_str, start_idx, end_idx, num)
 
         self.time2index = pd.DataFrame()
@@ -199,7 +199,7 @@ class Data:
         
         
     def update(self, start_str: Optional[str]=None, end_str: Optional[str]=None, 
-               start_ms: Optional[int]=None, end_ms: Optional[int]=None):
+               start_ms: Optional[int]=None, end_ms: Optional[int]=None) -> bool:
         """Update slef.data from start_str to end_str
             
         params: 
@@ -207,7 +207,10 @@ class Data:
                         i.e. "January 01, 2018", "11 hours ago UTC", "now UTC".
                         None means start time is self.end_time + 1
             end_str:    end date in readable format. None means now.
+        
+        return: Whether updated
         """
+        is_updated = False
         if self.can_update:
             if start_str or end_str:
                 assert start_ms is None and end_ms is None, 'Input type can only be str or int(ms)'
@@ -237,12 +240,15 @@ class Data:
                         klines.to_csv(self.file_loc, index=False)
                     
                     self.data = self.data.append(klines)
+                    is_updated = True
             else:
                 # end <= start, no need to update
                 pass
         else:
             # End of data changed. Can not update.
             pass
+
+        return is_updated
 
     def start_time_str(self) -> str:
         start_ms = self.start_time()

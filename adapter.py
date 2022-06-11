@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from socket import timeout
+from symtable import Symbol
 from typing import Optional
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
-import pandas as pd
 import time
 from enum import Enum
 from utils import milliseconds_to_date
@@ -34,6 +33,8 @@ class Adaptor(ABC):
         self.token_min_pos = self.token_min_pos_table[token_name]
         self.token_min_price_precision = self.token_min_price_precision_table[token_name]
         self.log_en = log_en
+
+        self.order_id = 0
 
     @abstractmethod
     def buy(self, params: PolicyToAdaptor) -> Optional[float]:
@@ -67,6 +68,11 @@ class Adaptor(ABC):
         
     @abstractmethod    
     def pos_amount(self) -> float:
+        return
+        
+    @abstractmethod
+    def entry_value(self) -> float:
+        # Position value when opening
         return
 
     @abstractmethod
@@ -103,10 +109,22 @@ class AdaptorBinance(Adaptor):
             "http": "http://127.0.0.1:8900",
             "https": "http://127.0.0.1:8900",
         }
-        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 120})
+        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20})
         self._update_account_info()
         self.time_minute = self._get_time_minute()
         self.data = data
+
+    def clear_open_orders(self):
+        open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
+        for order in open_orders:
+            try:
+                self._cancel_order(order_id = order['orderId'])
+            except KeyboardInterrupt as ex:
+                raise ex
+            except:
+                # Assume the order is executed
+                pass
+        self._update_account_info()
 
     def balance(self, refresh=False):
         if refresh:
@@ -120,6 +138,11 @@ class AdaptorBinance(Adaptor):
         pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
         
         return float(pos['positionAmt'])
+
+    def entry_value(self, refresh=False) -> float:
+        # Position value when opening
+        # Refresh once is enough
+        return self.entry_price(refresh) * self.pos_amount() / self.get_leverage()
 
     def entry_price(self, refresh=False) -> float:
         if refresh:
@@ -208,16 +231,20 @@ class AdaptorBinance(Adaptor):
         return False
     
     def get_timestamp(self) -> int:
-        timestamp = self.client.get_server_time()
+        timestamp = self._client_call('get_server_time')
         return int(timestamp['serverTime'])
 
     # ====================================== internal ======================================
+
+    # ------------------------ Change internal state ------------------------
 
     # Change self.account_info
     # Need to call after buying, selling
     def _update_account_info(self):
         # Ref: https://binance-docs.github.io/apidocs/futures/cn/#v2-user_data-2
-        self.account_info = self.client.futures_account()
+        self.account_info = self._client_call('futures_account')
+
+    # ------------------------ High level ------------------------
 
     def _order_limit_best_price(self, side: OrderSide, quantity:float, 
                                 wait_finished:Optional[bool]=False) -> float:
@@ -227,6 +254,7 @@ class AdaptorBinance(Adaptor):
         left_quantity = quantity
         average_price = 0
         cost = 0
+        last_close = self.data.get_value(DataElements.CLOSE, -1)
 
         while True:
             # Choose the best price
@@ -234,8 +262,9 @@ class AdaptorBinance(Adaptor):
             side_price = float(orderbook['bidPrice']) if side == self.OrderSide.BUY else float(orderbook['askPrice'])
             other_side_price = float(orderbook['askPrice']) if side == self.OrderSide.BUY else float(orderbook['bidPrice'])
 
-            delta = side_price - other_side_price
-            price = side_price + delta
+            # delta = last_close - other_side_price
+            # price = side_price + (2 * delta)
+            price = (side_price - last_close) * 0.7 + last_close
             price = round(price, self.token_min_price_precision)
 
             # Create limit order with best price
@@ -243,6 +272,7 @@ class AdaptorBinance(Adaptor):
             self._log('Best price is {:.4f}'.format(price))
             if self.log_en:
                 orderbook['time'] = milliseconds_to_date(orderbook['time'])
+                orderbook['last_close'] = last_close
                 print(orderbook)
             
             if wait_finished:
@@ -250,8 +280,8 @@ class AdaptorBinance(Adaptor):
                 
                 # 1. Wait until fully executed or price changed
                 while True:
-                    time.sleep(0.5)
-                    executed_amount = self._get_order_executed_amount(order['orderId'])
+                    time.sleep(5)
+                    executed_amount = self._get_order_executed_amount(client_order_id = self.order_id)
                     if executed_amount == left_quantity:
                         # Fully executed, then break
                         # self._log('Fully executed, then break')
@@ -297,15 +327,6 @@ class AdaptorBinance(Adaptor):
         
         return average_price
 
-    def _order_limit(self, side:OrderSide, quantity:float, price:float):
-        return self.client.futures_create_order(
-                    symbol = self.symbol, 
-                    side = side.value, 
-                    type = self.client.FUTURE_ORDER_TYPE_LIMIT, 
-                    quantity = quantity, 
-                    price = round(price, self.token_min_price_precision), 
-                    timeInForce = self.client.TIME_IN_FORCE_GTC)
-
     def _order_market_wait_finished(self, side:OrderSide, quantity:float) -> float:
         order_info = self._order_market(side, quantity)
         if self.log_en:
@@ -318,43 +339,127 @@ class AdaptorBinance(Adaptor):
                 break
             else:
                 time.sleep(0.5)
-                order_info = self.client.futures_get_order(symbol=self.symbol, orderId=order_info['orderId'])
+                order_info = self._get_order(client_order_id = self.order_id)
+                if order_info is None:
+                    raise Exception('Order not exist when wait finished after order market')
 
         return float(order_info['avgPrice'])
 
-    def _order_market(self, side:OrderSide, quantity:float):
-        return self.client.futures_create_order(symbol=self.symbol, side=side.value, 
-            type=self.client.FUTURE_ORDER_TYPE_MARKET, quantity=quantity)
-
-    def _get_order_executed_amount(self, order_id) -> float:
-        order_info = self.client.futures_get_order(symbol=self.symbol, orderId=order_id)
-        return float(order_info['executedQty'])
-    
-    def _cancel_order(self, order_id) -> float:
-        # Return order executed amount
-        order_info = self.client.futures_cancel_order(symbol=self.symbol, orderId=order_id)
-        return float(order_info['executedQty'])
-
-    def _get_orderbook(self):
-        return self.client.futures_orderbook_ticker(symbol=self.symbol)
-
     def _get_min_leverage(self) -> int:
         price = self.get_price()
-        min_btc = 0.001
-        min_busd = 0.001 * price
-        min_leverage = min_btc * price / self.balance()
+        min_busd = self.token_min_pos * price
+        min_leverage = self.token_min_pos * price / self.balance()
         leverage = int(min_leverage) + 1
-        self._log('price: {}, min_busd: {:.2f}, min_leverage: {:.2f}, leverage: {}'.format(price, min_busd, min_leverage, leverage))
+        self._log('price: {}, min_busd: {:.2f}, min_leverage: {:.2f}, leverage: {}'.format(
+            price, min_busd, min_leverage, leverage))
         return leverage
     
+    def _get_time_minute(self) -> int:
+        return self.get_timestamp() // 60000
+        
+# ------------------------ Post method ------------------------
+
+    def _order_limit(self, side:OrderSide, quantity:float, price:float):
+        return self._order(
+            symbol = self.symbol, 
+            side = side.value, 
+            type = self.client.FUTURE_ORDER_TYPE_LIMIT, 
+            quantity = quantity, 
+            price = round(price, self.token_min_price_precision), 
+            timeInForce = self.client.TIME_IN_FORCE_GTC)
+
+    def _order_market(self, side:OrderSide, quantity:float):
+        return self._order(
+            symbol = self.symbol, 
+            side = side.value, 
+            type = self.client.FUTURE_ORDER_TYPE_MARKET, 
+            quantity = quantity)
+
+    def _order(self, **kwargs):
+        while True:
+            try:
+                self.order_id += 1
+                kwargs['newClientOrderId'] = self.order_id
+                order_info = self.client.futures_create_order(**kwargs)
+                break
+            except KeyboardInterrupt as ex:
+                raise ex
+            except BinanceAPIException as ex:
+                print(str(ex) + ', when calling {}, params: {}'.format('_order_market', kwargs))
+                # Don't handle here
+                raise ex
+            except Exception as ex:
+                print(str(ex) + ', when calling {}, params: {}'.format('_order_market', kwargs))
+                # Error due to network. Check order whether exist, if exist, break
+                order_info = self._get_order(client_order_id = self.order_id)
+                if order_info:
+                    # Order submit succeed
+                    break
+                else:
+                    # Order submit failed, try again
+                    time.sleep(1)
+                
+        return order_info
+
+    def _cancel_order(self, order_id) -> float:
+        # Return order executed amount
+        order_info = self._client_call('futures_cancel_order', symbol=self.symbol, orderId=order_id)
+        return float(order_info['executedQty'])
+
     def _set_leverage(self, leverage: Optional[int]=None):
         if leverage is None:
             leverage = self._get_min_leverage()
-        self.client.futures_change_leverage(symbol=self.symbol, leverage=leverage)
+        self._client_call('futures_change_leverage', symbol=self.symbol, leverage=leverage)
         self._update_account_info()
 
-    def _get_time_minute(self) -> int:
-        return self.get_timestamp() // 60000
+    # ------------------------ Get method ------------------------
+    
+    def _get_order(self, order_id = None, client_order_id = None):
+        assert order_id or client_order_id
+        try:
+            order_info = self._client_call(
+                'futures_get_order', 
+                symbol = self.symbol, 
+                orderId = order_id, 
+                origClientOrderId = client_order_id)
+        except KeyboardInterrupt as ex:
+            raise ex
+        except BinanceAPIException:
+            order_info = None
+
+        return order_info
+
+    def _get_order_executed_amount(self, client_order_id) -> float:
+        order_info = self._get_order(client_order_id = client_order_id)
+        if order_info is None:
+            raise Exception('Order not exist when get executed amount')
+        return float(order_info['executedQty'])
+
+    def _get_orderbook(self):
+        return self._client_call('futures_orderbook_ticker', symbol=self.symbol)
+
+    # ------------------------ Client wrapper ------------------------
+
+    def _client_call(self, method, **kwargs):
+        call_cnt = 0
+        while True:
+            try:
+                result = getattr(self.client, method)(**kwargs)
+                break
+            except KeyboardInterrupt as ex:
+                raise ex
+            except Exception as ex:
+                # Due to network, Try again later
+                print(str(ex) + ', when calling {}, params: {}'.format(method, kwargs))
+                call_cnt += 1
+                # If stilled failed after 3 times calling, raise again
+                if call_cnt > 3:
+                    print('Still failed after 3 times calling, stop calling')
+                    raise(ex)
+                else:
+                    time.sleep(1)
+        
+        return result
 
 
 class AdaptorSimulator(Adaptor):
@@ -378,13 +483,14 @@ class AdaptorSimulator(Adaptor):
         self.i = 0
         self.fee = fee
 
-        self.price_last_trade = None
+        self.price_last_trade = 0
 
     def buy(self, params: PolicyToAdaptor) -> Optional[float]:
         # Return executed price, or None
         price = self._can_buy_or_sell(params)
         if price:
-            pos_amount = self.leverage * self._balance / price
+            balance = self._balance * 0.95  # Keep same with Adaptor Binance
+            pos_amount = self.leverage * balance / price
             # pos_amount must be an integer multiple of self.token_min_pos
             pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
 
@@ -440,7 +546,12 @@ class AdaptorSimulator(Adaptor):
     def pos_amount(self) -> float:
         return self._pos_amount
 
-    def entry_price(self) -> Optional[float]:
+    def entry_value(self) -> float:
+        # Position value when opening
+        # Refresh once is enough
+        return self.price_last_trade * self._pos_amount / self.leverage
+
+    def entry_price(self) -> float:
         return self.price_last_trade
     
     def is_finished(self) -> bool:

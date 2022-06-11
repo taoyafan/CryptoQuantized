@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Set
 from enum import Enum, auto
+import json
+import os
+
 from base_types import IdxValue, PolicyToAdaptor, OptState
 from adapter import Adaptor
 from utils import milliseconds_to_date
@@ -33,8 +36,8 @@ class Policy(ABC):
             self.last_buy_price = actual_price
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("\n{}: buy, price = {}, expect = {}, loss = {}".format(
-                time_str, actual_price, params_buy.price, (1 - params_buy.price / actual_price)))
+            self._log("\n{}: buy, price = {}, expect = {}, loss = {:.3f}%".format(
+                time_str, actual_price, params_buy.price, (1 - params_buy.price / actual_price)*100))
 
             # Save analyze info
             if self.analyze_en:
@@ -51,18 +54,22 @@ class Policy(ABC):
         if actual_price:
             is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("{}: sell, price = {}, expect = {}, loss = {}".format(
-                time_str, actual_price, params_sell.price, (1 - actual_price / params_sell.price)))
+            self._log("{}: sell, price = {}, expect = {}, loss = {:.3f}%".format(
+                time_str, actual_price, params_sell.price, (1 - actual_price / params_sell.price)*100))
 
             # Save analyze info
             earn_rate = (actual_price - self.last_buy_price) / self.last_buy_price   # Not include swap fee
             self._log('Earn rate without fee: {:.3f}%'.format(earn_rate*100))
             
             if self.analyze_en:
-                buy_reason = self.buy_state.last_reason
-                self.buy_state.add_left_part(params_sell.reason, earn_rate)
-                self.sell_state.add_all(adaptor.get_timestamp(), params_sell.price, actual_price, 
-                                        params_sell.reason, buy_reason, earn_rate)
+                if self.buy_state.pair_unfinished:
+                    buy_reason = self.buy_state.last_reason
+                    self.buy_state.add_left_part(params_sell.reason, earn_rate)
+                    self.sell_state.add_all(adaptor.get_timestamp(), params_sell.price, actual_price, 
+                                            params_sell.reason, buy_reason, earn_rate)
+                else:
+                    # The first order is sell, then we don't update buy/sell state
+                    pass
 
         return is_executed
 
@@ -108,6 +115,18 @@ class Policy(ABC):
     def sell_reasons(self) -> Set[str]:
         return
 
+    def save(self, file_loc: str, symbol: str, start, end):
+        if self.analyze_en:
+            trade_info = {
+                'buy_time': self.buy_state.points_idx,
+                'buy_price': self.buy_state.points_actual_price,
+                'sell_time': self.sell_state.points_idx,
+                'sell_price': self.sell_state.points_actual_price,
+            }
+
+            file_path = os.path.join(file_loc, '{}_start_{}_end_{}_trade_info.json'.format(symbol, start, end))
+            with open(file_path, 'w') as f:
+                json.dump(trade_info, f, indent=2)
 
     def _log(self, s=''):
         if self.log_en:
@@ -224,6 +243,21 @@ class PolicyBreakThrough(Policy):
     
     def _get_params_sell(self) -> PolicyToAdaptor:
         return PolicyToAdaptor(self.last_bottom, PolicyToAdaptor.BELLOW, 'Default')
+
+    def save(self, file_loc: str, symbol: str, start, end):
+        if self.analyze_en:
+            vertices = {
+                'top_time': self.tops.idx,
+                'top_value': self.tops.value,
+                'bottom_time': self.bottoms.idx,
+                'bottom_value': self.bottoms.value,
+            }
+
+            file_path = os.path.join(file_loc, '{}_start_{}_end_{}_vertices.json'.format(symbol, start, end))
+            with open(file_path, 'w') as f:
+                json.dump(vertices, f, indent=2)
+            
+            super().save(file_loc, symbol, start, end)
 
     @property
     def buy_reasons(self) -> Set[str]:
