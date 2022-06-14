@@ -163,8 +163,8 @@ class Data:
                 start_idx = data.index.values[0] if len(data) > 0 else None 
 
             if end_ms:
-                data = data[(data[DataElements.OPEN_TIME.value] <= end_ms)]
-                end_idx = data.index.values[-1] if len(data.index) > 0 else None 
+                data = data[(data[DataElements.CLOSE_TIME.value] <= end_ms)]
+                end_idx = data.index.values[-1] + 1 if len(data.index) > 0 else None 
     
         # print('After convert str to idx, start idx: {}, end idx: {}'.format(start_idx, end_idx))
         # 2. Set both start_idx and end_idx
