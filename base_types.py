@@ -10,6 +10,9 @@ class IdxValue:
     def add(self, idx: int, value):
         self.idx.append(idx)
         self.value.append(value)
+    
+    def is_empty(self) -> bool:
+        return len(self.idx) == 0
 
 
 class OptPoints:
@@ -148,7 +151,6 @@ class DataElements(Enum):
     NUMBER_OF_TRADES = 'number_of_trades'
     TAKER_BUY_VOLUME = 'taker_buy_volume'
     TAKER_BUY_QUOTE_ASSET_VOLUME = 'taker_buy_quote_asset_volume'
-
 
 class DataType(Enum):
     INTERVAL_1MINUTE = Client.KLINE_INTERVAL_1MINUTE

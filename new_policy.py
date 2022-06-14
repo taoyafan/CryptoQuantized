@@ -142,17 +142,22 @@ class PolicyBreakThrough(Policy):
     UP: Direction = Direction.UP
     DOWN = Direction.DOWN
 
-    def __init__(self, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False):
+    MIN_THRESHOLD = 20
+
+    def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False):
         super().__init__(log_en, analyze_en)
         self.last_top = float('inf')
+        self.last_top_idx = time
         self.fake_top = 0
-        self.fake_top_idx = 0
+        self.fake_top_idx = time
         self.last_bottom = 0
+        self.last_bottom_idx = 0
         self.fake_bottom = float('inf')
         self.fake_bottom_idx = 0
         self.nums_after_top = 0   # num after found the last top
         self.nums_after_bottom = 0   # num after found the last bottom
         self.direction = self.DOWN
+        self.threshold = self.MIN_THRESHOLD  # Trend invert threshold number
 
         self.policy_private_log = policy_private_log
 
@@ -171,6 +176,7 @@ class PolicyBreakThrough(Policy):
                 self.fake_top = high
                 self.fake_top_idx = timestamp
                 self.nums_after_top = 0
+                self.threshold = max((timestamp - self.last_bottom_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
                 
                 if close < open:
                     self.fake_bottom = low
@@ -185,9 +191,8 @@ class PolicyBreakThrough(Policy):
                     self.fake_bottom_idx = timestamp
                     self.nums_after_bottom = 0
                 
-                if self.nums_after_top >= 2:
+                if self.nums_after_top >= self.threshold:
                     # Trend reverses
-
                     if self.policy_private_log:
                         self._log('{}: Found new top, \tprice: {:.4f}, \tat  {}'.format(
                             milliseconds_to_date(timestamp), self.fake_top, 
@@ -199,6 +204,7 @@ class PolicyBreakThrough(Policy):
                     self.direction = self.DOWN
                     self.nums_after_top = 0
                     self.last_top = self.fake_top
+                    self.last_top_idx = self.fake_top_idx
                     self.fake_top = 0
         else:
             # Search bottom
@@ -207,6 +213,7 @@ class PolicyBreakThrough(Policy):
                 self.fake_bottom = low
                 self.fake_bottom_idx = timestamp
                 self.nums_after_bottom = 0
+                self.threshold = max((timestamp - self.last_top_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
 
                 if close > open:
                     self.fake_top = high
@@ -222,7 +229,7 @@ class PolicyBreakThrough(Policy):
                     self.fake_top_idx = timestamp
                     self.nums_after_top = 0
                 
-                if self.nums_after_bottom >= 2:
+                if self.nums_after_bottom >= self.threshold:
                     # Trend reverses
                     
                     if self.policy_private_log:
@@ -236,13 +243,14 @@ class PolicyBreakThrough(Policy):
                     self.direction = self.UP
                     self.nums_after_bottom = 0
                     self.last_bottom = self.fake_bottom
+                    self.last_bottom_idx = self.fake_bottom_idx
                     self.fake_bottom = float('inf')
 
     def _get_params_buy(self) -> PolicyToAdaptor:
-        return PolicyToAdaptor(self.last_top, PolicyToAdaptor.ABOVE, 'Default')
+        return PolicyToAdaptor(max(self.last_top, self.fake_top), PolicyToAdaptor.ABOVE, 'Default')
     
     def _get_params_sell(self) -> PolicyToAdaptor:
-        return PolicyToAdaptor(self.last_bottom, PolicyToAdaptor.BELLOW, 'Default')
+        return PolicyToAdaptor(min(self.last_bottom, self.fake_bottom), PolicyToAdaptor.BELLOW, 'Default')
 
     def save(self, file_loc: str, symbol: str, start, end):
         if self.analyze_en:
