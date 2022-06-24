@@ -1,3 +1,4 @@
+from sqlite3 import adapt
 from adapter import Adaptor
 from base_types import DataElements, IdxValue
 from data import Data
@@ -10,29 +11,30 @@ class AccountState:
         self.balance: float = adaptor.balance()
         self.init_balance: float = self.balance
         self.pos_amount: float = adaptor.pos_amount()
+        self.pos_value: float = adaptor.pos_value()
         self.adaptor: Adaptor = adaptor
         self.analyze_en: bool = analyze_en
         self.log_en: bool = log_en
         if self.log_en:
-            print('Balance: {:.4f}, pos amount: {}'.format(self.balance, self.pos_amount))
+            print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
 
         if self.analyze_en:
             self.update_times = [adaptor.get_timestamp()]
             self.balance_history = [self.balance]
             self.pos_amount_history = [self.pos_amount]
+            self.pos_value_history = [self.pos_value]
             self.pos_entry_prices = [adaptor.entry_price()]
             self.pos_entry_values = [adaptor.entry_value()]
             self.earn_points = IdxValue()
     
     def can_buy(self) -> bool:
-        assert self.pos_amount >= 0, "Currently not support SHORT side"
-        if self.pos_amount == 0:
+        if self.pos_amount <= 0:
             return True
         else:
             return False
     
     def can_sell(self) -> bool:
-        if self.pos_amount > 0:
+        if self.pos_amount >= 0:
             return True
         else:
             return False
@@ -43,29 +45,25 @@ class AccountState:
             self.update_times.append(timestamp)
             self.balance_history.append(self.balance)
             self.pos_amount_history.append(self.pos_amount)
+            self.pos_value_history.append(self.pos_value)
             self.pos_entry_prices.append(self.adaptor.entry_price())
             self.pos_entry_values.append(self.adaptor.entry_value())
 
     def update(self) -> None:
         self.balance: float = self.adaptor.balance()
         self.pos_amount: float = self.adaptor.pos_amount()
+        self.pos_value: float = self.adaptor.pos_value()
         if self.log_en:
-            print('Balance: {:.4f}, pos amount: {}'.format(self.balance, self.pos_amount))
-
+            print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
+            print()
     
     def earn_rate(self, price: float) -> float:
         # 1 represent 100% means no earn
         return self.earn(price) / self.init_balance
 
     def earn(self, price: float) -> float:
-        if self.pos_amount > 0:
-            buy_price = self.adaptor.entry_price()
-            earn = (price - buy_price) * self.pos_amount
-            buy_balance = self.adaptor.entry_value()
-            balance = self.balance + buy_balance + earn
-        else:
-            balance = self.balance
-
+        self.pos_value = self.adaptor.pos_value(price)
+        balance = self.balance + self.pos_value
         total_earn = balance - self.init_balance
         return total_earn
 
@@ -96,54 +94,30 @@ class AccountState:
                 init_balance = self.balance_history[0]
                 i = 0
                 for j in range(len(self.update_times)):
-                    if self.pos_amount_history[j] > 0:
-                        # It is a buy operation
-                        
-                        # 1. Calculate earn of current timestamp
-                        if j > 0:
-                            close = data.get_value(DataElements.CLOSE, i)
-                            buy_price = self.pos_entry_prices[j]
-                            pos_amount = self.pos_amount_history[j]
-                            pos_value = (close - buy_price) * pos_amount + self.pos_entry_values[j]
-                            earn = pos_value + self.balance_history[j] - self.balance_history[j-1]
-                            earn_rate = earn / init_balance
-                            earn_points.value[i] = earn_points.value[i-1] + earn_rate
-                        else:
-                            earn_points.value[i] = 1
-                        i += 1
 
-                        # 2. Calculate earn until next update
-                        close = data.get_value(DataElements.CLOSE, i-1)
-                        while (j+1 < len(self.update_times) and \
-                                self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
-                            (j+1 >= len(self.update_times) and i < data.len()):
+                    # 1. Calculate earn of current timestamp
+                    if j > 0:
+                        earn_points.value[i] = (self.pos_value_history[j] + self.balance_history[j]) / init_balance
+                    else:
+                        earn_points.value[i] = 1
+                    i += 1
 
+                    # 2. Calculate earn until next update
+                    close = data.get_value(DataElements.CLOSE, i-1)
+                    while (j+1 < len(self.update_times) and \
+                            self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
+                        (j+1 >= len(self.update_times) and i < data.len()):
+
+                        if self.pos_amount_history[j] != 0:
                             last_close = close
                             close = data.get_value(DataElements.CLOSE, i)
                             earn = (close - last_close) * self.pos_amount_history[j]
                             earn_rate = earn / init_balance
-                            earn_points.value[i] = earn_points.value[i-1] + earn_rate
-                            i += 1
-
-                    else:
-                        # It is a sell operation
-                        
-                        # 1. Calculate earn of current timestamp
-                        if j > 0:
-                            earn_points.value[i] = self.balance_history[j] / init_balance
                         else:
-                            earn_points.value[i] = 1
+                            earn_rate = 0
+                        earn_points.value[i] = earn_points.value[i-1] + earn_rate
                         i += 1
 
-                        # 2. Calculate earn until next update
-                        while (j+1 < len(self.update_times) and \
-                                self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
-                            (j+1 >= len(self.update_times) and i < data.len()):
-                            
-                            earn_points.value[i] = earn_points.value[i-1]
-                            i += 1
-
-                    # pos_amount is 0
                 # loop for each states
 
                 self.earn_points = earn_points

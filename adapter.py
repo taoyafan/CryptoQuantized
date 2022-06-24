@@ -8,10 +8,13 @@ from enum import Enum
 from utils import milliseconds_to_date
 
 from api_key import API_KEY, SECRET_KEY
-from base_types import PolicyToAdaptor, DataElements
+from base_types import OrderSide, PolicyToAdaptor, DataElements
 from data import Data
 
 class Adaptor(ABC):
+
+    BUY = OrderSide.BUY
+    SELL = OrderSide.SELL
 
     token_min_pos_table = {
         'BTC': 0.001,
@@ -66,10 +69,14 @@ class Adaptor(ABC):
     def balance(self) -> float:
         return
         
-    @abstractmethod    
+    @abstractmethod
     def pos_amount(self) -> float:
         return
-        
+    
+    @abstractmethod
+    def pos_value(self, price=None) -> float:
+        return
+
     @abstractmethod
     def entry_value(self) -> float:
         # Position value when opening
@@ -96,12 +103,6 @@ class Adaptor(ABC):
 
 
 class AdaptorBinance(Adaptor):
-
-    class OrderSide(Enum):
-        BUY = Client.SIDE_BUY
-        SELL = Client.SIDE_SELL
-    BUY = OrderSide.BUY
-    SELL = OrderSide.SELL
 
     def __init__(self, usd_name, token_name, data:Data, log_en=True):
         super().__init__(usd_name, token_name, data, log_en)
@@ -138,6 +139,16 @@ class AdaptorBinance(Adaptor):
         pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
         
         return float(pos['positionAmt'])
+
+    def pos_value(self, price=None, refresh=False) -> float:
+        if price is None:
+            price = self.get_price()
+
+        # Refresh once is enough
+        earn = (price - self.entry_price(refresh)) * self.pos_amount()
+        value = self.entry_value() + earn
+        return value
+
 
     def entry_value(self, refresh=False) -> float:
         # Position value when opening
@@ -211,7 +222,7 @@ class AdaptorBinance(Adaptor):
     def get_price(self, side: OrderSide=OrderSide.SELL) -> float:
         # Price of side sell is higher.
         orderbook_ticket = self._get_orderbook()
-        price_type = 'bidPrice' if side == self.OrderSide.BUY else 'askPrice'
+        price_type = 'bidPrice' if side == OrderSide.BUY else 'askPrice'
         price = float(orderbook_ticket[price_type])
         return price
     
@@ -259,8 +270,8 @@ class AdaptorBinance(Adaptor):
         while True:
             # Choose the best price
             orderbook = self._get_orderbook()
-            side_price = float(orderbook['bidPrice']) if side == self.OrderSide.BUY else float(orderbook['askPrice'])
-            other_side_price = float(orderbook['askPrice']) if side == self.OrderSide.BUY else float(orderbook['bidPrice'])
+            side_price = float(orderbook['bidPrice']) if side == OrderSide.BUY else float(orderbook['askPrice'])
+            other_side_price = float(orderbook['askPrice']) if side == OrderSide.BUY else float(orderbook['bidPrice'])
 
             # delta = last_close - other_side_price
             # price = side_price + (2 * delta)
@@ -288,8 +299,8 @@ class AdaptorBinance(Adaptor):
                         break
                     else:
                         # If not fully executed, check the price
-                        if (side == self.OrderSide.BUY and self.get_price(side) > other_side_price) or (
-                           (side == self.OrderSide.SELL and self.get_price(side) < other_side_price)
+                        if (side == OrderSide.BUY and self.get_price(side) > other_side_price) or (
+                           (side == OrderSide.SELL and self.get_price(side) < other_side_price)
                         ):
                             # Price changed, no need to wait, break 
                             # self._log('Price changed, no need to wait, break')
@@ -487,45 +498,40 @@ class AdaptorSimulator(Adaptor):
 
     def buy(self, params: PolicyToAdaptor) -> Optional[float]:
         # Return executed price, or None
-        price = self._can_buy_or_sell(params)
-        if price:
-            balance = self._balance * 0.95  # Keep same with Adaptor Binance
-            pos_amount = self.leverage * balance / price
-            # pos_amount must be an integer multiple of self.token_min_pos
-            pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
-
-            assert pos_amount >= self.token_min_pos, 'Pos amount is {}, but min value is {}'.format(
-                pos_amount, self.token_min_pos)
-
-            if pos_amount >= self.token_min_pos:
-                # Update balance and pos_amount
-                self._pos_amount += pos_amount
-                total_u = pos_amount * price
-                self._balance -= total_u / self.leverage + total_u * self.fee
-                self.price_last_trade = price
-
-        return price
+        return self.buy_or_sell(params, self.BUY)
 
     def sell(self, params: PolicyToAdaptor) -> Optional[float]:
         # Return executed price, or None
+        return self.buy_or_sell(params, self.SELL)
+
+    def buy_or_sell(self, params: PolicyToAdaptor, side: OrderSide):
+        # Return executed price, or None
         price = self._can_buy_or_sell(params)
         if price:
-            # Sell all
-            assert self._pos_amount > 0, 'Pos amount cannot be 0 when sell'
-            assert self.price_last_trade
+            # Reduce first
+            if self.pos_amount() != 0:
+                # pos_value must called before clear pos_amount
+                self._balance += self.pos_value(price=price) * (1 - self.fee)
+                self._pos_amount = 0
+                self.price_last_trade = price
 
-            bought_balance = self.price_last_trade * self._pos_amount / self.leverage
-            earn = (price - self.price_last_trade) * self._pos_amount
-            sold_balance = bought_balance + earn
-            # sold_balance = self.price_last_trade * self._pos_amount / self.leverage + \
-            #                (price - self.price_last_trade) * self.leverage
+            if params.reduce_only == False:
+                balance = self._balance * 0.95  # Keep same with Adaptor Binance
+                pos_amount = self.leverage * balance / price
+                # pos_amount must be an integer multiple of self.token_min_pos
+                pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
 
-            self._balance += sold_balance * (1 - self.fee)
-            self._pos_amount = 0
-            self.price_last_trade = price
-        
+                assert pos_amount >= self.token_min_pos, 'Pos amount is {}, but min value is {}'.format(
+                pos_amount, self.token_min_pos)
+
+                if pos_amount >= self.token_min_pos:
+                    # Update balance and pos_amount
+                    self._pos_amount += pos_amount if side == self.BUY else -pos_amount
+                    total_u = pos_amount * price
+                    self._balance -= total_u / self.leverage + total_u * self.fee
+                    self.price_last_trade = price
+
         return price
-
 
     def get_leverage(self) -> int:
         return self.leverage
@@ -546,10 +552,21 @@ class AdaptorSimulator(Adaptor):
     def pos_amount(self) -> float:
         return self._pos_amount
 
+    def pos_value(self, price=None) -> float:
+        if price is None:
+            price = self.get_price()
+            
+        if self.price_last_trade > 0:
+            earn = (price - self.price_last_trade) * self.pos_amount()
+            value = self.entry_value() + earn
+        else:
+            value = 0
+            
+        return value
+
     def entry_value(self) -> float:
-        # Position value when opening
-        # Refresh once is enough
-        return self.price_last_trade * self._pos_amount / self.leverage
+        pos_amount = self._pos_amount if self._pos_amount >= 0 else -self._pos_amount
+        return self.price_last_trade * pos_amount / self.leverage
 
     def entry_price(self) -> float:
         return self.price_last_trade

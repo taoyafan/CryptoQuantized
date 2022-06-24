@@ -165,11 +165,11 @@ def simulated_trade():
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # start_str="2022-06-08 18:48 UTC+8", end_str="2022/06/09 8:27 UTC+8", is_futures=True)
-                # start_str="2022-06-11 14:30 UTC+8", end_str="2022/06/12 08:40 UTC+8", is_futures=True)
+                # start_str="2022-06-03 11:30 UTC+8", end_str="2022/06/04 02:40 UTC+8", is_futures=True)
                 is_futures=True)
     print('Loading data finished')
 
-    adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=10000000, 
+    adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=100, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
     policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
 

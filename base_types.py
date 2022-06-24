@@ -2,6 +2,11 @@ from typing import Dict, Optional, List, Set
 from binance.client import Client
 from enum import Enum, auto
 import numpy as np 
+
+class OrderSide(Enum):
+    BUY = Client.SIDE_BUY
+    SELL = Client.SIDE_SELL
+
 class IdxValue:
     def __init__(self, idx: Optional[List]=None, value: Optional[List]=None):
         self.idx = idx if idx else []
@@ -28,10 +33,12 @@ class PolicyToAdaptor:
     ABOVE = directionType.ABOVE
     BELLOW = directionType.BELLOW
 
-    def __init__(self, price: float, direction: directionType, reason: str, is_order_market: bool=False):
+    def __init__(self, price: float, direction: directionType, reason: str, 
+                reduce_only: bool=False, is_order_market: bool=False):
         self.price: float = price
         self.direction: PolicyToAdaptor.directionType = direction
         self.reason = reason
+        self.reduce_only = reduce_only
         self.is_order_market = is_order_market
 
 

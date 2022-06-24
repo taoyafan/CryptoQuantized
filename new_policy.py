@@ -4,7 +4,7 @@ from enum import Enum, auto
 import json
 import os
 
-from base_types import IdxValue, PolicyToAdaptor, OptState
+from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState
 from adapter import Adaptor
 from utils import milliseconds_to_date
 
@@ -20,7 +20,7 @@ class Policy(ABC):
     def __init__(self, log_en: bool, analyze_en):
         self.log_en = log_en            # Whether log
         self.analyze_en = analyze_en    # Whether save analyze data
-        self.last_buy_price = float('inf')
+        self.price_last_trade = 0
         
         if self.analyze_en:
             self.buy_state = OptState(self.buy_reasons, self.sell_reasons)
@@ -31,47 +31,49 @@ class Policy(ABC):
         params_buy = self._get_params_buy()
         actual_price = adaptor.buy(params_buy)
 
-        is_executed = False
-        if actual_price:
-            self.last_buy_price = actual_price
-            is_executed = True
-            time_str = adaptor.get_time_str()
-            self._log("\n{}: buy, price = {}, expect = {}, loss = {:.3f}%".format(
-                time_str, actual_price, params_buy.price, (1 - params_buy.price / actual_price)*100))
+        self.update_info(adaptor, OrderSide.BUY, params_buy, actual_price)
 
-            # Save analyze info
-            if self.analyze_en:
-                self.buy_state.add_part(adaptor.get_timestamp(), params_buy.price, actual_price, params_buy.reason)
-
-        return is_executed
+        return True if actual_price else False
 
     def try_to_sell(self, adaptor: Adaptor) -> bool:
         # Return whether sold
         params_sell = self._get_params_sell()
         actual_price = adaptor.sell(params_sell)
+        self.update_info(adaptor, OrderSide.SELL, params_sell, actual_price)
 
-        is_executed = False
+        return True if actual_price else False
+
+    def update_info(self, adaptor: Adaptor, side: OrderSide, params: PolicyToAdaptor, actual_price: Optional[float]):
         if actual_price:
-            is_executed = True
             time_str = adaptor.get_time_str()
-            self._log("{}: sell, price = {}, expect = {}, loss = {:.3f}%".format(
-                time_str, actual_price, params_sell.price, (1 - actual_price / params_sell.price)*100))
+            if side == OrderSide.BUY:
+                loss = (1 - params.price / actual_price)
+            else:
+                loss = (1 - actual_price / params.price)
+            self._log("{}: {}, price = {}, expect = {}, loss = {:.3f}%".format(
+                time_str, side.value, actual_price, params.price, loss*100))
 
             # Save analyze info
-            earn_rate = (actual_price - self.last_buy_price) / self.last_buy_price   # Not include swap fee
-            self._log('Earn rate without fee: {:.3f}%'.format(earn_rate*100))
+            earn_rate = 0
+            if self.price_last_trade > 0:
+                if side == OrderSide.BUY:
+                    # Earn of last sell
+                    earn_rate = (self.price_last_trade - actual_price) / self.price_last_trade   # Not include swap fee
+                else:
+                    earn_rate = (actual_price - self.price_last_trade) / self.price_last_trade   # Not include swap fee
+
+                self._log('Earn rate without fee: {:.3f}%'.format(earn_rate*100))
             
             if self.analyze_en:
-                if self.buy_state.pair_unfinished:
-                    buy_reason = self.buy_state.last_reason
-                    self.buy_state.add_left_part(params_sell.reason, earn_rate)
-                    self.sell_state.add_all(adaptor.get_timestamp(), params_sell.price, actual_price, 
-                                            params_sell.reason, buy_reason, earn_rate)
-                else:
-                    # The first order is sell, then we don't update buy/sell state
-                    pass
+                side_state: OptState = self.buy_state if side == OrderSide.BUY else self.sell_state
+                other_state: OptState = self.sell_state if side == OrderSide.BUY else self.buy_state
+                
+                if other_state.pair_unfinished:
+                    other_state.add_left_part(params.reason, earn_rate)
 
-        return is_executed
+                side_state.add_part(adaptor.get_timestamp(), params.price, actual_price, params.reason)
+
+            self.price_last_trade = actual_price
 
     def get_points(self, points_type: PointsType) -> IdxValue:
         # The idx is timestamp
