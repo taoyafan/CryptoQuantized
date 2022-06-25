@@ -1,7 +1,7 @@
 import time
 import os
 from adapter import Adaptor, AdaptorBinance, AdaptorSimulator
-from new_policy import Policy, PolicyBreakThrough
+from new_policy import Policy, PolicyBreakThrough, PolicyBreakThrough2
 from base_types import DataType, DataElements
 from data import Data
 from plot import PricePlot
@@ -159,19 +159,20 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'threshold_20'
+    exp_name = 'threshold_30_k0.4_p2'
 
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # start_str="2022-06-08 18:48 UTC+8", end_str="2022/06/09 8:27 UTC+8", is_futures=True)
-                # start_str="2022-06-03 11:30 UTC+8", end_str="2022/06/04 02:40 UTC+8", is_futures=True)
+                # start_str="2022-06-02 3:20 UTC+8", end_str="2022/06/02 4:40 UTC+8", is_futures=True)
                 is_futures=True)
     print('Loading data finished')
 
-    adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=100, 
+    adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
-    policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
+    # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
+    policy = PolicyBreakThrough2(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
 
     start = time.time()
     state = main_loop(adaptor, policy, log_en)
@@ -186,7 +187,11 @@ def simulated_trade():
         policy.save(folder, symbol, data.start_time(), data.end_time())
         state.save_earn_points(data, folder, symbol, data.start_time(), data.end_time())
     
-    final_log(data, policy, state)
+    try:
+        final_log(data, policy, state)
+    except Exception as ex:
+        print(ex)
+
     if analyze_en:
         plot(data, policy, state)
 
