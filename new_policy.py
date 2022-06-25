@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from re import L
 from typing import Dict, Optional, List, Set
 from enum import Enum, auto
 import json
@@ -178,7 +179,7 @@ class PolicyBreakThrough(Policy):
                 self.fake_top = high
                 self.fake_top_idx = timestamp
                 self.nums_after_top = 0
-                self.threshold = max((timestamp - self.last_bottom_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
+                # self.threshold = max((timestamp - self.last_bottom_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
                 
                 if close < open:
                     self.fake_bottom = low
@@ -215,7 +216,7 @@ class PolicyBreakThrough(Policy):
                 self.fake_bottom = low
                 self.fake_bottom_idx = timestamp
                 self.nums_after_bottom = 0
-                self.threshold = max((timestamp - self.last_top_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
+                # self.threshold = max((timestamp - self.last_top_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
 
                 if close > open:
                     self.fake_top = high
@@ -276,3 +277,101 @@ class PolicyBreakThrough(Policy):
     @property
     def sell_reasons(self) -> Set[str]:
         return {'Default'}
+
+
+import numpy as np
+class PolicyBreakThrough2(PolicyBreakThrough):
+
+    def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False):
+        super().__init__(time, log_en, analyze_en, policy_private_log)
+        self.highs = np.empty(0)
+        self.lows = np.empty(0)
+        self.finding_bottom = True
+        self.threshold = self.MIN_THRESHOLD
+        self.front_threshold = 1
+
+        self.fake_point = 0
+        self.fake_point_time = time
+
+    def update(self, high: float, low: float, open: float, close: float, timestamp: int):
+        self.highs = np.append(self.highs, high)
+        self.lows = np.append(self.lows, low)
+        
+        # If threshold, We must has three data, idx is len - threshold - 1
+        # e.g. threshold is 1, len is 3, then the high/low we checked is highs/lows[1]
+        if len(self.highs) > self.threshold + self.front_threshold:
+            assert len(self.highs) == len(self.lows)
+            idx = len(self.highs) - self.threshold - 1
+            idx_time = timestamp - self.threshold * 60000
+            
+            confirm_top = False
+            confirm_bottom = False
+
+            if (self.highs[idx] >= self.highs[idx:]).all() and (
+                self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
+                # Is top
+                if self.finding_bottom:
+                    # Now is finding bottom then last point is a fake top
+                    if self.highs[idx] > self.fake_point:
+                        self.fake_point = self.highs[idx]
+                        self.fake_point_time = idx_time
+                else:
+                    # Now is finding top then last point is a fake bottom which can be confirmed
+                    confirm_bottom = True
+                    self.finding_bottom = True
+
+            elif (self.lows[idx] <= self.lows[idx:]).all() and (
+                self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
+                # Is bottom
+                if self.finding_bottom:
+                    # Now is finding bottom then last point is a fake top which can be confirmed
+                    confirm_top = True
+                    self.finding_bottom = False
+                else:
+                    # Now is finding top then last point is a fake bottom
+                    if self.lows[idx] < self.fake_point:
+                        self.fake_point = self.lows[idx]
+                        self.fake_point_time = idx_time
+            
+            if confirm_top:
+                # Filter the init fake point
+                if self.fake_point > 0:
+                    self.last_top = self.fake_point
+                    if self.analyze_en:
+                        self.tops.add(self.fake_point_time, self.last_top)
+
+                self.fake_point = self.lows[idx]
+                self.fake_point_time = idx_time
+            
+            if confirm_bottom:
+                # Filter the init fake point
+                if self.fake_point > 0:
+                    self.last_bottom = self.fake_point
+                    if self.analyze_en:
+                        self.bottoms.add(self.fake_point_time, self.last_bottom)
+
+                self.fake_point = self.highs[idx]
+                self.fake_point_time = idx_time
+
+            if confirm_top or confirm_bottom:
+                self.highs = self.highs[idx-self.front_threshold:]
+                self.lows = self.lows[idx-self.front_threshold:]
+        
+    def _get_params_buy(self) -> PolicyToAdaptor:
+        # idx = len(self.highs) - self.threshold
+        fake_top = np.max(self.highs) if len(self.highs) > 0 else 0
+        return PolicyToAdaptor(max(self.last_top, fake_top), PolicyToAdaptor.ABOVE, 'Default')
+    
+    def _get_params_sell(self) -> PolicyToAdaptor:
+        # idx = len(self.lows) - self.threshold
+        fake_bottom = np.min(self.lows) if len(self.lows) > 0 else float('inf')
+        return PolicyToAdaptor(min(self.last_bottom, fake_bottom), PolicyToAdaptor.BELLOW, 'Default')
+
+    @property
+    def buy_reasons(self) -> Set[str]:
+        return {'Default'}
+
+    @property
+    def sell_reasons(self) -> Set[str]:
+        return {'Default'}
+
