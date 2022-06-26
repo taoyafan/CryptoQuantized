@@ -287,7 +287,6 @@ class PolicyBreakThrough2(PolicyBreakThrough):
         self.highs = np.empty(0)
         self.lows = np.empty(0)
         self.finding_bottom = True
-        self.threshold = self.MIN_THRESHOLD
         self.front_threshold = 1
         
         self.last_checked_time = time
@@ -296,12 +295,19 @@ class PolicyBreakThrough2(PolicyBreakThrough):
         self.highs = np.append(self.highs, high)
         self.lows = np.append(self.lows, low)
         
-        self._update_threshold()
-        idx_time = timestamp - self.threshold * 60000
+        # If threshold is 1
+        # 0         1           2      ...      30           31
+        # 490      496         502              670          676
+        # last                                          confirmed_time
+        #        new_last
+        #        new_idx
 
-        # Make sure check every point
-        while self.last_checked_time < idx_time:
+        threshold = self._get_threshold()
+        confirmed_time = self.last_checked_time + (threshold + 1) * 60000
+
+        while confirmed_time <= timestamp:
             self.last_checked_time += 60000
+            confirmed_time += 60000
             idx = len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000
 
             # If threshold is 1, We must has three data, idx is len - threshold - 1
@@ -313,7 +319,9 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                 found_bottom = False
 
                 if self.finding_bottom:
-                    if (self.lows[idx] <= self.lows[idx:]).all() and (
+                    assert idx + threshold + 1 <= len(self.lows)
+
+                    if (self.lows[idx] <= self.lows[idx:idx+threshold+1]).all() and (
                         self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
                         # Is bottom
                         found_bottom = True
@@ -350,11 +358,16 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                 if found_top or found_bottom:
                     self.highs = self.highs[idx-self.front_threshold:]
                     self.lows = self.lows[idx-self.front_threshold:]
-        
-    def _update_threshold(self):
+                    threshold = self._get_threshold()
+                    confirmed_time = self.last_checked_time + (threshold + 1) * 60000
+            
+            # if idx >= self.front_threshold:
+        # while confirmed_time <= timestamp:
+
+    def _get_threshold(self):
         num = len(self.highs) - self.front_threshold - 1
         k = 0.4
-        self.threshold = max(self.MIN_THRESHOLD, int(k * num))
+        return max(self.MIN_THRESHOLD, int(k * num))
 
     def _get_params_buy(self) -> PolicyToAdaptor:
         idx = self.front_threshold + 1

@@ -158,7 +158,7 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'threshold_30_k0.4_p2_fixErrorPoint'
+    exp_name = 'threshold_30_k0.4_p2_fixErrorPoint_newStruct'
 
     print('Loading data')
     symbol = token_name+usd_name
