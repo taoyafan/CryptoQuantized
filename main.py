@@ -26,10 +26,9 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
             # For dynamic price in one step
             if state.can_buy():
                 is_trade = policy.try_to_buy(adaptor)
-            elif state.can_sell():
+
+            if is_trade == False and state.can_sell():
                 is_trade = policy.try_to_sell(adaptor)
-            else:
-                is_trade = False
 
             # If trade, update             
             if is_trade:
@@ -159,13 +158,18 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'threshold_30_k0.4_p2'
+    exp_name = 'threshold_30_k0.4_p2_fixErrorPoint'
 
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # start_str="2022-06-08 18:48 UTC+8", end_str="2022/06/09 8:27 UTC+8", is_futures=True)
-                # start_str="2022-06-02 3:20 UTC+8", end_str="2022/06/02 4:40 UTC+8", is_futures=True)
+                
+                # Found a Mistake Top 
+                # start_str="2022-06-09 0:15 UTC+8", end_str="2022/06/09 4:40 UTC+8", is_futures=True)
+                
+                # Small cycle is embedded in Big cycle
+                # start_str="2022-06-15 15:15 UTC+8", end_str="2022/06/16 0:00 UTC+8", is_futures=True)
                 is_futures=True)
     print('Loading data finished')
 

@@ -296,65 +296,66 @@ class PolicyBreakThrough2(PolicyBreakThrough):
         self.highs = np.append(self.highs, high)
         self.lows = np.append(self.lows, low)
         
-        num = len(self.highs) - self.front_threshold - 1
-        k = 0.40
-        self.threshold = max(self.MIN_THRESHOLD, int(k * num))
-        idx = len(self.highs) - self.threshold - 1
+        self._update_threshold()
         idx_time = timestamp - self.threshold * 60000
-        
-        if self.last_checked_time == idx_time:
-            # Checked the same point
-            return
-        else:
-            self.last_checked_time = idx_time
 
-        # If threshold, We must has three data, idx is len - threshold - 1
-        # e.g. threshold is 1, len is 3, then the high/low we checked is highs/lows[1]
-        if idx >= 0:
-            assert len(self.highs) == len(self.lows)
-            
-            found_top = False
-            found_bottom = False
+        # Make sure check every point
+        while self.last_checked_time < idx_time:
+            self.last_checked_time += 60000
+            idx = len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000
 
-            if self.finding_bottom:
-                if (self.lows[idx] <= self.lows[idx:]).all() and (
-                    self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
-                    # Is bottom
-                    found_bottom = True
+            # If threshold is 1, We must has three data, idx is len - threshold - 1
+            # e.g. threshold is 1, len is 3, then the high/low we checked is highs/lows[1]
+            if idx >= self.front_threshold:
+                assert len(self.highs) == len(self.lows)
+                
+                found_top = False
+                found_bottom = False
 
-                    if (self.highs[idx] >= self.highs[idx:]).all() and (
-                        self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
-                        # Is also top
-                        found_top = True
-                    else:
-                        self.finding_bottom = False
-            else:
-                if (self.highs[idx] >= self.highs[idx:]).all() and (
-                    self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
-                    # Is top
-                    found_top = True
-
+                if self.finding_bottom:
                     if (self.lows[idx] <= self.lows[idx:]).all() and (
                         self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
-                        # Is also bottom
+                        # Is bottom
                         found_bottom = True
-                    else:
-                        self.finding_bottom = True
 
-            if found_top:
-                self.last_top = self.highs[idx]
-                if self.analyze_en:
-                    self.tops.add(idx_time, self.last_top)
-            
-            if found_bottom:
-                self.last_bottom = self.lows[idx]
-                if self.analyze_en:
-                    self.bottoms.add(idx_time, self.last_bottom)
+                        if (self.highs[idx] >= self.highs[idx:]).all() and (
+                            self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
+                            # Is also top
+                            found_top = True
+                        else:
+                            self.finding_bottom = False
+                else:
+                    if (self.highs[idx] >= self.highs[idx:]).all() and (
+                        self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
+                        # Is top
+                        found_top = True
 
-            if found_top or found_bottom:
-                self.highs = self.highs[idx-self.front_threshold:]
-                self.lows = self.lows[idx-self.front_threshold:]
+                        if (self.lows[idx] <= self.lows[idx:]).all() and (
+                            self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
+                            # Is also bottom
+                            found_bottom = True
+                        else:
+                            self.finding_bottom = True
+
+                if found_top:
+                    self.last_top = self.highs[idx]
+                    if self.analyze_en:
+                        self.tops.add(self.last_checked_time, self.last_top)
+                
+                if found_bottom:
+                    self.last_bottom = self.lows[idx]
+                    if self.analyze_en:
+                        self.bottoms.add(self.last_checked_time, self.last_bottom)
+
+                if found_top or found_bottom:
+                    self.highs = self.highs[idx-self.front_threshold:]
+                    self.lows = self.lows[idx-self.front_threshold:]
         
+    def _update_threshold(self):
+        num = len(self.highs) - self.front_threshold - 1
+        k = 0.4
+        self.threshold = max(self.MIN_THRESHOLD, int(k * num))
+
     def _get_params_buy(self) -> PolicyToAdaptor:
         idx = self.front_threshold + 1
         fake_top = np.max(self.highs[idx:]) if len(self.highs) > idx else 0
