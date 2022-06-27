@@ -1,7 +1,7 @@
 import time
 import os
 from adapter import Adaptor, AdaptorBinance, AdaptorSimulator
-from new_policy import Policy, PolicyBreakThrough, PolicyBreakThrough2
+from new_policy import Policy, PolicyBreakThrough, PolicyBreakThrough2, PolicyBreakThrough3
 from base_types import DataType, DataElements
 from data import Data
 from plot import PricePlot
@@ -158,7 +158,7 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'threshold_30_k0.4_p2_fixErrorPoint_newStruct'
+    exp_name = 'threshold_30_k_point_delta_0.9_k_front_0.4_p3'
 
     print('Loading data')
     symbol = token_name+usd_name
@@ -169,14 +169,14 @@ def simulated_trade():
                 # start_str="2022-06-09 0:15 UTC+8", end_str="2022/06/09 4:40 UTC+8", is_futures=True)
                 
                 # Small cycle is embedded in Big cycle
-                # start_str="2022-06-15 15:15 UTC+8", end_str="2022/06/16 0:00 UTC+8", is_futures=True)
+                # start_str="2022-06-15 15:15 UTC+8", end_str="2022/06/16 2:40 UTC+8", is_futures=True)
                 is_futures=True)
     print('Loading data finished')
 
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
     # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    policy = PolicyBreakThrough2(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
+    policy = PolicyBreakThrough3(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
 
     start = time.time()
     state = main_loop(adaptor, policy, log_en)

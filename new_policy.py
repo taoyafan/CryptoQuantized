@@ -5,6 +5,8 @@ from enum import Enum, auto
 import json
 import os
 
+from cv2 import threshold
+
 from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState
 from adapter import Adaptor
 from utils import milliseconds_to_date
@@ -150,13 +152,13 @@ class PolicyBreakThrough(Policy):
     def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False):
         super().__init__(log_en, analyze_en)
         self.last_top = float('inf')
-        self.last_top_idx = time
+        self.last_top_time = time
         self.fake_top = 0
-        self.fake_top_idx = time
+        self.fake_top_time = time
         self.last_bottom = 0
-        self.last_bottom_idx = 0
+        self.last_bottom_time = time
         self.fake_bottom = float('inf')
-        self.fake_bottom_idx = 0
+        self.fake_bottom_time = time
         self.nums_after_top = 0   # num after found the last top
         self.nums_after_bottom = 0   # num after found the last bottom
         self.direction = self.DOWN
@@ -177,9 +179,9 @@ class PolicyBreakThrough(Policy):
             if high > self.fake_top:
                 # Trend continue to move up, update fake top
                 self.fake_top = high
-                self.fake_top_idx = timestamp
+                self.fake_top_time = timestamp
                 self.nums_after_top = 0
-                self.threshold = max((timestamp - self.last_bottom_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
+                self.threshold = max((timestamp - self.last_bottom_time) * 0.5 // 60000, self.MIN_THRESHOLD)
                 
                 if close < open:
                     self.fake_bottom = low
@@ -187,11 +189,11 @@ class PolicyBreakThrough(Policy):
                 else:
                     self.nums_after_bottom = -1
                     self.fake_bottom = float('inf')
-                self.fake_bottom_idx = timestamp
+                self.fake_bottom_time = timestamp
             else:
                 if low < self.fake_bottom:
                     self.fake_bottom = low
-                    self.fake_bottom_idx = timestamp
+                    self.fake_bottom_time = timestamp
                     self.nums_after_bottom = 0
                 
                 if self.nums_after_top >= self.threshold:
@@ -202,21 +204,21 @@ class PolicyBreakThrough(Policy):
                             milliseconds_to_date(timestamp - 60000 * self.nums_after_top)))
 
                     if self.analyze_en:
-                        self.tops.add(self.fake_top_idx, self.fake_top)
+                        self.tops.add(self.fake_top_time, self.fake_top)
 
                     self.direction = self.DOWN
                     self.nums_after_top = 0
                     self.last_top = self.fake_top
-                    self.last_top_idx = self.fake_top_idx
+                    self.last_top_time = self.fake_top_time
                     self.fake_top = 0
         else:
             # Search bottom
             if low < self.fake_bottom:
                 # Trend continuely to move down, update fake bottom
                 self.fake_bottom = low
-                self.fake_bottom_idx = timestamp
+                self.fake_bottom_time = timestamp
                 self.nums_after_bottom = 0
-                self.threshold = max((timestamp - self.last_top_idx) * 0.5 // 60000, self.MIN_THRESHOLD)
+                self.threshold = max((timestamp - self.last_top_time) * 0.5 // 60000, self.MIN_THRESHOLD)
 
                 if close > open:
                     self.fake_top = high
@@ -224,12 +226,12 @@ class PolicyBreakThrough(Policy):
                 else:
                     self.fake_top = 0
                     self.nums_after_top = -1
-                self.fake_top_idx = timestamp
+                self.fake_top_time = timestamp
 
             else:
                 if high > self.fake_top:
                     self.fake_top = high
-                    self.fake_top_idx = timestamp
+                    self.fake_top_time = timestamp
                     self.nums_after_top = 0
                 
                 if self.nums_after_bottom >= self.threshold:
@@ -241,12 +243,12 @@ class PolicyBreakThrough(Policy):
                             milliseconds_to_date(timestamp - 60000 * self.nums_after_bottom)))
 
                     if self.analyze_en:
-                        self.bottoms.add(self.fake_bottom_idx, self.fake_bottom)
+                        self.bottoms.add(self.fake_bottom_time, self.fake_bottom)
 
                     self.direction = self.UP
                     self.nums_after_bottom = 0
                     self.last_bottom = self.fake_bottom
-                    self.last_bottom_idx = self.fake_bottom_idx
+                    self.last_bottom_time = self.fake_bottom_time
                     self.fake_bottom = float('inf')
 
     def _get_params_buy(self) -> PolicyToAdaptor:
@@ -288,6 +290,9 @@ class PolicyBreakThrough2(PolicyBreakThrough):
         self.lows = np.empty(0)
         self.finding_bottom = True
         self.front_threshold = 1
+
+        self.delta_time_top = 0
+        self.delta_time_bottom = 0
         
         self.last_checked_time = time
 
@@ -302,8 +307,8 @@ class PolicyBreakThrough2(PolicyBreakThrough):
         #        new_last
         #        new_idx
 
-        threshold = self._get_threshold()
-        confirmed_time = self.last_checked_time + (threshold + 1) * 60000
+        self._update_threshold()
+        confirmed_time = self.last_checked_time + (self.threshold + 1) * 60000
 
         while confirmed_time <= timestamp:
             self.last_checked_time += 60000
@@ -317,11 +322,11 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                 
                 found_top = False
                 found_bottom = False
-
+                    
                 if self.finding_bottom:
-                    assert idx + threshold + 1 <= len(self.lows)
+                    assert idx + self.threshold + 1 <= len(self.lows)
 
-                    if (self.lows[idx] <= self.lows[idx:idx+threshold+1]).all() and (
+                    if (self.lows[idx] <= self.lows[idx:idx+self.threshold+1]).all() and (
                         self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
                         # Is bottom
                         found_bottom = True
@@ -347,27 +352,32 @@ class PolicyBreakThrough2(PolicyBreakThrough):
 
                 if found_top:
                     self.last_top = self.highs[idx]
+                    self.delta_time_top = self.last_checked_time - self.last_top_time
+                    self.last_top_time = self.last_checked_time
                     if self.analyze_en:
                         self.tops.add(self.last_checked_time, self.last_top)
                 
                 if found_bottom:
                     self.last_bottom = self.lows[idx]
+                    self.delta_time_bottom = self.last_checked_time - self.last_bottom_time
+                    self.last_bottom_time = self.last_checked_time
                     if self.analyze_en:
                         self.bottoms.add(self.last_checked_time, self.last_bottom)
 
                 if found_top or found_bottom:
                     self.highs = self.highs[idx-self.front_threshold:]
                     self.lows = self.lows[idx-self.front_threshold:]
-                    threshold = self._get_threshold()
-                    confirmed_time = self.last_checked_time + (threshold + 1) * 60000
+                    self._update_threshold()
+                    confirmed_time = self.last_checked_time + (self.threshold + 1) * 60000
             
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
 
-    def _get_threshold(self):
+    def _update_threshold(self):
         num = len(self.highs) - self.front_threshold - 1
         k = 0.4
-        return max(self.MIN_THRESHOLD, int(k * num))
+        self.threshold = max(self.MIN_THRESHOLD, int(k * num))
+        return self.threshold
 
     def _get_params_buy(self) -> PolicyToAdaptor:
         idx = self.front_threshold + 1
@@ -387,3 +397,21 @@ class PolicyBreakThrough2(PolicyBreakThrough):
     def sell_reasons(self) -> Set[str]:
         return {'Default'}
 
+class PolicyBreakThrough3(PolicyBreakThrough2):
+    
+    def _update_threshold(self):
+        # Time of the checked point
+        time = self.last_checked_time + 60000
+        k_points_delta = 0.9
+        k_front = 0.4
+        time_last_same_point = self.last_bottom_time if self.finding_bottom else self.last_top_time
+        delta_time_same_point = self.delta_time_bottom if self.finding_bottom else self.delta_time_top
+        next_point_time_min = time_last_same_point + k_points_delta * delta_time_same_point
+        threshold = int((next_point_time_min - time) // 60000) + self.MIN_THRESHOLD
+
+        self.threshold = max(self.MIN_THRESHOLD, threshold)
+        
+        if (time - time_last_same_point) <  k_front * delta_time_same_point:
+            self.front_threshold = int((time - time_last_same_point) // 60000)
+        else:
+            self.front_threshold = 1
