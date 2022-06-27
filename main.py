@@ -158,15 +158,15 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'threshold_30_k_point_delta_0.9_k_front_0.4_p3'
+    exp_name = 'th30_kLatest_0.5_kSame_0.85_kOther_0.15_p3'
 
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # start_str="2022-06-08 18:48 UTC+8", end_str="2022/06/09 8:27 UTC+8", is_futures=True)
                 
-                # Found a Mistake Top 
-                # start_str="2022-06-09 0:15 UTC+8", end_str="2022/06/09 4:40 UTC+8", is_futures=True)
+                # Missing top
+                # start_str="2022-06-07 16:15 UTC+8", end_str="2022/06/08 3:30 UTC+8", is_futures=True)
                 
                 # Small cycle is embedded in Big cycle
                 # start_str="2022-06-15 15:15 UTC+8", end_str="2022/06/16 2:40 UTC+8", is_futures=True)

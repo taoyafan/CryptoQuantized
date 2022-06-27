@@ -402,16 +402,26 @@ class PolicyBreakThrough3(PolicyBreakThrough2):
     def _update_threshold(self):
         # Time of the checked point
         time = self.last_checked_time + 60000
-        k_points_delta = 0.9
-        k_front = 0.4
-        time_last_same_point = self.last_bottom_time if self.finding_bottom else self.last_top_time
-        delta_time_same_point = self.delta_time_bottom if self.finding_bottom else self.delta_time_top
-        next_point_time_min = time_last_same_point + k_points_delta * delta_time_same_point
-        threshold = int((next_point_time_min - time) // 60000) + self.MIN_THRESHOLD
-
-        self.threshold = max(self.MIN_THRESHOLD, threshold)
+        k_same_points_delta = 0.85
+        k_other_points_delta = 0.15
+        k_latest_point_delta = 0.5
         
-        if (time - time_last_same_point) <  k_front * delta_time_same_point:
-            self.front_threshold = int((time - time_last_same_point) // 60000)
-        else:
-            self.front_threshold = 1
+        # Last point
+        time_last_same_point = self.last_bottom_time if self.finding_bottom else self.last_top_time
+        time_last_other_point = self.last_top_time if self.finding_bottom else self.last_bottom_time
+        time_latest_point = max(time_last_same_point, time_last_other_point)
+        
+        # delta time
+        delta_time_same_point = self.delta_time_bottom if self.finding_bottom else self.delta_time_top
+        delta_time_other_point = self.delta_time_top if self.finding_bottom else self.delta_time_bottom
+        delta_time_latest_point = (time - time_latest_point) * k_latest_point_delta
+
+        # next_point min time
+        next_point_time_min = time_last_same_point + k_same_points_delta * delta_time_same_point
+        next_other_point_time_min = time_last_other_point + k_other_points_delta * delta_time_other_point
+
+        th_same_point_delta = int((next_point_time_min - time) // 60000) + self.MIN_THRESHOLD
+        th_other_point_delta = int((next_other_point_time_min - time) // 60000) + self.MIN_THRESHOLD
+        th_latest_point_delta = int(delta_time_latest_point // 60000)
+
+        self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_other_point_delta, th_latest_point_delta)
