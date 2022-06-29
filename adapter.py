@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from symtable import Symbol
 from typing import Optional
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
@@ -18,12 +17,18 @@ class Adaptor(ABC):
 
     token_min_pos_table = {
         'BTC': 0.001,
+        'GMT': 0.1,
         'LUNA2': 1,
+        'DOGE': 1,
+        '1000LUNC': 1,
     }
 
     token_min_price_precision_table = {
         'BTC': 1,
+        'GMT': 4,
         'LUNA2': 4,
+        'DOGE': 5,
+        '1000LUNC': 4,
     }
 
     def __init__(self, usd_name, token_name, data:Data, log_en):
@@ -153,7 +158,9 @@ class AdaptorBinance(Adaptor):
     def entry_value(self, refresh=False) -> float:
         # Position value when opening
         # Refresh once is enough
-        return self.entry_price(refresh) * self.pos_amount() / self.get_leverage()
+        pos_amount = self.pos_amount()
+        pos_amount = pos_amount if pos_amount >= 0 else -pos_amount
+        return self.entry_price(refresh) * pos_amount / self.get_leverage()
 
     def entry_price(self, refresh=False) -> float:
         if refresh:
@@ -170,50 +177,44 @@ class AdaptorBinance(Adaptor):
 
 
     def buy(self, params: PolicyToAdaptor) -> Optional[float]:
-        current_price = self.get_price(self.SELL)
+        return self.buy_or_sell(params, self.BUY)
+
+    def sell(self, params: PolicyToAdaptor) -> Optional[float]:
+        return self.buy_or_sell(params, self.SELL)
+
+
+    def buy_or_sell(self, params: PolicyToAdaptor, side: OrderSide):
+        # Return executed price, or None
+        other_side = OrderSide.BUY if side == OrderSide.SELL else OrderSide.SELL
+        current_price = self.get_price(other_side)
         executed_price = None
         if (params.direction == params.ABOVE and current_price > params.price) or (
             params.direction == params.BELLOW and current_price < params.price
         ):
-            leverage = self.get_leverage()
-            balance = self.balance() * 0.95 # Make sure margin is enough
-            pos_amount = leverage * balance / current_price
-            # pos_amount must be an integer multiple of self.token_min_pos
-            pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
+            # Reduce amount
+            reduce_pos_amount = self.pos_amount()
+            reduce_pos_amount = reduce_pos_amount if reduce_pos_amount >= 0 else -reduce_pos_amount
             
-            assert pos_amount >= self.token_min_pos, 'Pos amount is {}, but min value is {}'.format(
-                pos_amount, self.token_min_pos)
+            if params.reduce_only == False:
+                leverage = self.get_leverage()
+                balance = (self.balance() + self.pos_value()) * 0.95 # Make sure margin is enough
+                pos_amount = leverage * balance / current_price
+                # pos_amount must be an integer multiple of self.token_min_pos
+                pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
+
+            else:
+                pos_amount = 0
+            
+            pos_amount += reduce_pos_amount
             
             if pos_amount >= self.token_min_pos:
                 if params.is_order_market:
-                    executed_price = self._order_market_wait_finished(self.BUY, pos_amount)
+                    executed_price = self._order_market_wait_finished(side, pos_amount)
                 else:
-                    executed_price = self._order_limit_best_price(self.BUY, pos_amount, wait_finished=True)
+                    executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
                 self._update_account_info()
             else:
                 executed_price = None
-        else:
-            executed_price = None
-
-        return executed_price
-
-    def sell(self, params: PolicyToAdaptor) -> Optional[float]:
-        current_price = self.get_price(self.BUY)
-        executed_price = None
-        if (params.direction == params.ABOVE and current_price > params.price) or (
-            params.direction == params.BELLOW and current_price < params.price
-        ):
-            pos_amount = self.pos_amount()
-            assert pos_amount > 0, 'Pos amount cannot be 0 when sell'
-            
-            if pos_amount > 0:
-                if params.is_order_market:
-                    executed_price = self._order_market_wait_finished(self.SELL, pos_amount)
-                else:
-                    executed_price = self._order_limit_best_price(self.SELL, pos_amount, wait_finished=True)
-                self._update_account_info()
-            else:
-                executed_price = None 
         else:
             executed_price = None
 
