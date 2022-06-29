@@ -5,8 +5,6 @@ from enum import Enum, auto
 import json
 import os
 
-from cv2 import threshold
-
 from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState
 from adapter import Adaptor
 from utils import milliseconds_to_date
@@ -312,7 +310,6 @@ class PolicyBreakThrough2(PolicyBreakThrough):
 
         while confirmed_time <= timestamp:
             self.last_checked_time += 60000
-            confirmed_time += 60000
             idx = len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000
 
             # If threshold is 1, We must has three data, idx is len - threshold - 1
@@ -322,7 +319,10 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                 
                 found_top = False
                 found_bottom = False
-                    
+                
+                # TODO If doesn't find the other point then replace the 
+                # last point which can be trated as a fake point 
+                
                 if self.finding_bottom:
                     assert idx + self.threshold + 1 <= len(self.lows)
 
@@ -330,25 +330,14 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                         self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
                         # Is bottom
                         found_bottom = True
-
-                        if (self.highs[idx] >= self.highs[idx:]).all() and (
-                            self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
-                            # Is also top
-                            found_top = True
-                        else:
-                            self.finding_bottom = False
+                        self.finding_bottom = False
                 else:
-                    if (self.highs[idx] >= self.highs[idx:]).all() and (
+                    # TODO check the effect of :idx+self.threshold+1
+                    if (self.highs[idx] >= self.highs[idx:idx+self.threshold+1]).all() and (
                         self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
                         # Is top
                         found_top = True
-
-                        if (self.lows[idx] <= self.lows[idx:]).all() and (
-                            self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
-                            # Is also bottom
-                            found_bottom = True
-                        else:
-                            self.finding_bottom = True
+                        self.finding_bottom = True
 
                 if found_top:
                     self.last_top = self.highs[idx]
@@ -365,10 +354,23 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                         self.bottoms.add(self.last_checked_time, self.last_bottom)
 
                 if found_top or found_bottom:
+                    
+                    if self.policy_private_log:
+                        point_type = 'top' if found_top else 'bottom'
+                        price = self.last_top if found_top else self.last_bottom
+                        point_time = self.last_top_time if found_top else self.last_bottom_time
+
+                        self._log('{}: Found new {}, \tprice: {:.4f}, \tat  {}'.format(
+                            milliseconds_to_date(timestamp), 
+                            point_type, 
+                            price,
+                            milliseconds_to_date(point_time)))
+
                     self.highs = self.highs[idx-self.front_threshold:]
                     self.lows = self.lows[idx-self.front_threshold:]
-                    self._update_threshold()
-                    confirmed_time = self.last_checked_time + (self.threshold + 1) * 60000
+
+                self._update_threshold()
+                confirmed_time = self.last_checked_time + (self.threshold + 1) * 60000
             
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
@@ -402,9 +404,9 @@ class PolicyBreakThrough3(PolicyBreakThrough2):
     def _update_threshold(self):
         # Time of the checked point
         time = self.last_checked_time + 60000
-        k_same_points_delta = 0.85
+        k_same_points_delta = 0.86
         k_other_points_delta = 0.15
-        k_latest_point_delta = 0.5
+        k_latest_point_delta = 0.6
         
         # Last point
         time_last_same_point = self.last_bottom_time if self.finding_bottom else self.last_top_time
