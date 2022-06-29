@@ -185,7 +185,7 @@ class Data:
 
         # 3. Check out bound and get the target data
         # start_idx will not be None
-        if start_idx < 0:   # type: ignore
+        if start_idx is None or start_idx < 0:
             start_idx = 0
 
         if end_idx and end_idx >= len(self.data):
@@ -340,7 +340,9 @@ def main():
     # symbol = "BTCUSDT"
     # symbol = "BTCBUSD"
     symbol = "LUNA2BUSD"
-    # symbol = "LUNCBUSD"
+    # symbol = "GMTBUSD"
+    # symbol = "DOGEBUSD"
+    # symbol = "1000LUNCBUSD"
     interval = DataType.INTERVAL_1MINUTE
     start = "2022/06/1 11:05 UTC+8"
     # start = "140 days ago UTC+8"
