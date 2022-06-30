@@ -30,30 +30,32 @@ class PricePlot:
              opt_point: Optional[OptPoints]=None, earn_point: Optional[IdxValue]=None, 
              points: Optional[List[Points]]=None):
 
-        figure_num = 1 if plot_candle else 0
+        figure_num = 1
         figure_num += 1 if plot_vol else 0
         figure_num += 1 if earn_point else 0
         if figure_num == 0:
             return
 
-        subplot = None
         num = 0
+        subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1)
         if plot_candle:
-            subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1)
             self._candle_plot(subplot)
-            if points:
-                for p in points:
-                    subplot.scatter(p.idx, p.value, s=p.s, c=p.c, label=p.label)  # type: ignore
-            if opt_point:
-                subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
-                subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
-            if datum:
-                subplot.scatter(datum['high']['idx'], datum['high']['value'], s=30, c='b', label="high")  # type: ignore
-                subplot.scatter(datum['low']['idx'], datum['low']['value'], s=30, c='y', label="low") # type: ignore
-            if datum_lines:
-                self._datum_lines_plot(subplot, datum_lines)
-            plt.legend()
-            num += 1
+        else:
+            subplot.plot(range(0, len(self.data)), self.data['close'],  # type: ignore
+                        color="gray", linewidth=1.0, label='base')
+        if points:
+            for p in points:
+                subplot.scatter(p.idx, p.value, s=p.s, c=p.c, label=p.label)  # type: ignore
+        if opt_point:
+            subplot.scatter(opt_point.buy.idx, opt_point.buy.value, s=90, c='r', label="buy")  # type: ignore
+            subplot.scatter(opt_point.sell.idx, opt_point.sell.value, s=90, c='g', label="sell") # type: ignore
+        if datum:
+            subplot.scatter(datum['high']['idx'], datum['high']['value'], s=30, c='b', label="high")  # type: ignore
+            subplot.scatter(datum['low']['idx'], datum['low']['value'], s=30, c='y', label="low") # type: ignore
+        if datum_lines:
+            self._datum_lines_plot(subplot, datum_lines)
+        plt.legend()
+        num += 1
 
         if plot_vol:
             subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1, sharex=subplot)
