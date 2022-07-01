@@ -158,7 +158,7 @@ def simulated_trade():
     save_info = True
     
     k_same_points_delta = 0.9
-    k_other_points_delta = 0.15
+    k_other_points_delta = 0
     k_from_latest_point = 0.6
     search_to_now = False
 
