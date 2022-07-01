@@ -155,7 +155,7 @@ def simulated_trade():
 
     log_en = False
     analyze_en = True
-    save_info = True
+    save_info = False
     
     k_same_points_delta = 0.9
     k_other_points_delta = 0
@@ -163,16 +163,17 @@ def simulated_trade():
     search_to_now = False
 
     # ksol means k_same_points_delta, k_other_points_delta, k_from_latest_point
-    # SearchtoNow means search to max (currunt time, threshold) when update policy 
-    exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
+    # SearchtoNow means search to max (currunt time, threshold) when update policy
+    # mfp means move fake point to the correct pos 
+    exp_name = 'ksol_{}_{}_{}{}_mfp'.format(k_same_points_delta, k_other_points_delta, 
                                         k_from_latest_point, '_SearchToNow' if search_to_now else '')
     
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
-                # Failed to sell
-                # start_str="2022-06-13 16:00 UTC+8",  end_str="2022/06/13 23:30 UTC+8", is_futures=True)
+                # Fake bottom
+                # start_str="2022-06-13 1:40 UTC+8",  end_str="2022/06/13 16:00 UTC+8", is_futures=True)
                 
                 # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
                 # num=6000, is_futures=True)

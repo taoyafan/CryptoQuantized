@@ -3,6 +3,22 @@ from binance.client import Client
 from enum import Enum, auto
 import numpy as np 
 
+class Recoverable:
+    def __init__(self, value):
+        self._value = value
+        self._last_value = value
+    
+    def set(self, value):
+        self._last_value = self.value
+        self._value = value
+    
+    def recover(self):
+        self._value = self._last_value
+
+    @property
+    def value(self):
+        return self._value
+
 class OrderSide(Enum):
     BUY = Client.SIDE_BUY
     SELL = Client.SIDE_SELL
