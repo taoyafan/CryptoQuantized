@@ -326,14 +326,14 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                 if self.finding_bottom:
                     assert idx + self.threshold + 1 <= len(self.lows)
 
-                    if (self.lows[idx] <= self.lows[idx:idx+self.threshold+1]).all() and (
+                    if (self.lows[idx] <= self.lows[idx:]).all() and (
                         self.lows[idx] <= self.lows[idx-self.front_threshold:idx]).all():
                         # Is bottom
                         found_bottom = True
                         self.finding_bottom = False
                 else:
                     # TODO check the effect of :idx+self.threshold+1
-                    if (self.highs[idx] >= self.highs[idx:idx+self.threshold+1]).all() and (
+                    if (self.highs[idx] >= self.highs[idx:]).all() and (
                         self.highs[idx] >= self.highs[idx-self.front_threshold:idx]).all():
                         # Is top
                         found_top = True
@@ -354,7 +354,7 @@ class PolicyBreakThrough2(PolicyBreakThrough):
                         self.bottoms.add(self.last_checked_time, self.last_bottom)
 
                 if found_top or found_bottom:
-                    
+
                     if self.policy_private_log:
                         point_type = 'top' if found_top else 'bottom'
                         price = self.last_top if found_top else self.last_bottom
@@ -406,7 +406,7 @@ class PolicyBreakThrough3(PolicyBreakThrough2):
         time = self.last_checked_time + 60000
         k_same_points_delta = 0.86
         k_other_points_delta = 0.15
-        k_latest_point_delta = 0.6
+        k_latest_point_delta = 0.4
         
         # Last point
         time_last_same_point = self.last_bottom_time if self.finding_bottom else self.last_top_time

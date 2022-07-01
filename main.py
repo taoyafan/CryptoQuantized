@@ -162,24 +162,22 @@ def simulated_trade():
     log_en = False
     analyze_en = True
     save_info = False
-    exp_name = 'th30_kLatest_0.6_kSame_0.86_kOther_0.15_fixHighsIdx_fixThUpdate_p3'
+    
+    # Fix means fix the threshold update and idx to idx+self.threshold+1 .
+    # noIdx means don't search points idx to idx+self.threshold+1 but all
+    exp_name = 'th30_kLatest_0.4_kSame_0.86_kOther_0.15_p3Fix_noIdx'
 
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
-                # start_str="2022-06-08 18:48 UTC+8", end_str="2022/06/09 8:27 UTC+8", is_futures=True)
+                # Failed to sell
+                # start_str="2022-06-13 16:00 UTC+8",  end_str="2022/06/13 23:30 UTC+8", is_futures=True)
                 
-                # Missing top
-                # start_str="2022-06-13 5:30 UTC+8",  end_str="2022/06/13 23:30 UTC+8", is_futures=True)
-                
-                # Small cycle is embedded in Big cycle
-                # start_str="2022-06-15 15:15 UTC+8", end_str="2022/06/16 2:40 UTC+8", is_futures=True)
-
-                # GMT Worst cycle
-                # start_str="2022-06-12 20:25 UTC+8", end_str="2022/06/13 8:05 UTC+8", is_futures=True)
-                # start_str="2022/06/10 7:00 UTC+8", is_futures=True)
-                # num=5000, is_futures=True)
+                # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
+                # num=6000, is_futures=True)
+                # end_str='2022-06-30 19:34:00 UTC+8', is_futures=True)
                 end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
+
     print('Loading data finished')
 
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
