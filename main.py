@@ -1,7 +1,7 @@
 import time
 import os
 from adapter import Adaptor, AdaptorBinance, AdaptorSimulator
-from new_policy import Policy, PolicyBreakThrough, PolicyBreakThrough2, PolicyBreakThrough3
+from new_policy import Policy, PolicyBreakThrough
 from base_types import DataType, DataElements
 from data import Data
 from plot import PricePlot
@@ -51,8 +51,6 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
 
         policy.update(high = adaptor.get_latest_kline_value(DataElements.HIGH),
                     low = adaptor.get_latest_kline_value(DataElements.LOW),
-                    open = adaptor.get_latest_kline_value(DataElements.OPEN),
-                    close = adaptor.get_latest_kline_value(DataElements.CLOSE),
                     timestamp = last_timestamp)
         
         # Used for simulator
@@ -125,12 +123,10 @@ def real_trade():
 
     # Update policy
     timestamp = int(data.get_value(DataElements.OPEN_TIME, 0))
-    policy = PolicyBreakThrough3(timestamp, log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log)
+    policy = PolicyBreakThrough(timestamp, log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log)
     for i in range(data.len()):
         policy.update(high = data.get_value(DataElements.HIGH, i),
                       low = data.get_value(DataElements.LOW, i),
-                      open = data.get_value(DataElements.OPEN, i),
-                      close = data.get_value(DataElements.CLOSE, i),
                       timestamp = int(data.get_value(DataElements.OPEN_TIME, i)))
 
     while True:
@@ -146,8 +142,6 @@ def real_trade():
             if data.update(end_str="1 minute ago UTC+8"):
                 policy.update(high = data.get_value(DataElements.HIGH, -1),
                             low = data.get_value(DataElements.LOW, -1),
-                            open = data.get_value(DataElements.OPEN, -1),
-                            close = data.get_value(DataElements.CLOSE, -1),
                             timestamp = int(data.get_value(DataElements.OPEN_TIME, -1)))
 
 
@@ -161,12 +155,19 @@ def simulated_trade():
 
     log_en = False
     analyze_en = True
-    save_info = False
+    save_info = True
     
-    # Fix means fix the threshold update and idx to idx+self.threshold+1 .
-    # noIdx means don't search points idx to idx+self.threshold+1 but all
-    exp_name = 'th30_kLatest_0.4_kSame_0.86_kOther_0.15_p3Fix_noIdx'
+    k_same_points_delta = 0.9
+    k_other_points_delta = 0.15
+    k_from_latest_point = 0.6
+    search_to_now = False
 
+    # ksol means k_same_points_delta, k_other_points_delta, k_from_latest_point
+    # SearchtoNow means search to max (currunt time, threshold) when update policy 
+    exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
+                                        k_from_latest_point, '_SearchToNow' if search_to_now else '')
+    
+    print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
@@ -175,15 +176,24 @@ def simulated_trade():
                 
                 # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
                 # num=6000, is_futures=True)
-                # end_str='2022-06-30 19:34:00 UTC+8', is_futures=True)
-                end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
+                end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
+                # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
 
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
     # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    policy = PolicyBreakThrough3(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en, policy_private_log=True)
+    policy = PolicyBreakThrough(
+        adaptor.get_timestamp(), 
+        log_en=log_en, 
+        analyze_en=analyze_en, 
+        policy_private_log=True,
+        
+        k_same_points_delta = k_same_points_delta,
+        k_other_points_delta = k_other_points_delta,
+        k_from_latest_point = k_from_latest_point,
+        search_to_now = search_to_now)
 
     start = time.time()
     state = main_loop(adaptor, policy, log_en)

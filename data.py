@@ -260,7 +260,7 @@ class Data:
 
     def start_time(self) -> Union[int, None]:
         if len(self.data) > 0:
-            start = int(self.data['open_time'].values[0])
+            start = int(self.data['open_time'].values[0])  # type: ignore
         else:
             start = None
         
@@ -276,7 +276,7 @@ class Data:
 
     def end_time(self) -> Union[int, None]:
         if len(self.data) > 0:
-            end = int(self.data['close_time'].values[-1])
+            end = int(self.data['close_time'].values[-1])  # type: ignore
         else:
             end = None
         
@@ -290,7 +290,7 @@ class Data:
 
     def get_value(self, name: DataElements, i: int) -> float:
         assert i < self.len()
-        return float(self.data[name.value].values[i])
+        return float(self.data[name.value].values[i])  # type: ignore
 
     def time_list_to_idx(self, time_list:List) -> List:
         self._update_time2idx()
