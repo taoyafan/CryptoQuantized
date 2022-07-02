@@ -170,10 +170,7 @@ class PolicyBreakThrough(Policy):
             self.tops = IdxValue()
             self.bottoms = IdxValue()
 
-    def _update_threshold(self):
-        # Time of the checked point
-        checked_time = self.last_checked_time + 60000
-        
+    def _update_threshold(self, checked_time):
         # Last point
         time_last_same_point = self.last_bottom_time.value if self.finding_bottom else self.last_top_time.value
         time_last_other_point = self.last_top_time.value if self.finding_bottom else self.last_bottom_time.value
@@ -192,6 +189,7 @@ class PolicyBreakThrough(Policy):
         th_other_point_delta = int((next_other_point_time_min - checked_time) // 60000) + self.MIN_THRESHOLD
         th_latest_point_delta = int(delta_time_latest_point // 60000)
 
+        # self.front_threshold = max(1, th_other_point_delta-self.MIN_THRESHOLD)
         self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_other_point_delta, th_latest_point_delta)
 
     def update(self, high: float, low: float, timestamp: int):
@@ -201,7 +199,7 @@ class PolicyBreakThrough(Policy):
 
         while True:
             # For each checked time, update threshold, confirmed time
-            self._update_threshold()
+            self._update_threshold(self.last_checked_time + 60000)
             confirmed_time_of_next_time = self.last_checked_time + (self.threshold + 1) * 60000
 
             # Doesn't come to the confirmed time, then break
@@ -211,7 +209,7 @@ class PolicyBreakThrough(Policy):
             # Then we can check the next time
             self.last_checked_time += 60000
             idx = len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000
- 
+
             # If threshold is 1, We must has three data, idx is len - threshold - 1
             # e.g. threshold is 1, len is 3, then the high/low we checked is highs/lows[1]
             if idx >= self.front_threshold:
@@ -220,22 +218,9 @@ class PolicyBreakThrough(Policy):
                 found_top = False
                 found_bottom = False
 
-                if self.finding_bottom and self.highs[idx] > self.last_top:
-                    # Found new top when searching bottom, last top is fake top, keep search top
-                    self.finding_bottom = False
-                    # Revert time info of last top
-                    self.delta_time_top.recover()
-                    self.last_top_time.recover()
-                    
-                elif self.finding_bottom == False and self.lows[idx] < self.last_bottom:
-                    # Found new bottom when searching top, last bottom is fake bottom, keep search bottom
-                    self.finding_bottom = True
-                    # Revert time info of last bottom
-                    self.delta_time_bottom.recover()
-                    self.last_bottom_time.recover()
-
                 end_idx = len(self.highs) if self.search_to_now else idx+self.threshold+1
 
+                # Finding bottom and top
                 if self.finding_bottom:
                     assert idx + self.threshold + 1 <= len(self.lows)
 
@@ -252,6 +237,7 @@ class PolicyBreakThrough(Policy):
                         found_top = True
                         self.finding_bottom = True
 
+                # If found
                 if found_top or found_bottom:
                     if found_top:
                         self.last_top = self.highs[idx]
@@ -280,6 +266,24 @@ class PolicyBreakThrough(Policy):
 
                     self.highs = self.highs[idx-self.front_threshold:]
                     self.lows = self.lows[idx-self.front_threshold:]
+
+                # If not found the top and bottom check whether latest point is fake
+                else:
+                    if self.finding_bottom and self.highs[idx] > self.last_top:
+                        # Found new top when searching bottom, last top is fake top, keep search top
+                        self.finding_bottom = False
+                        # Revert time info of last top
+                        self.delta_time_top.recover()
+                        self.last_top_time.recover()
+                        self.last_checked_time -= 60000
+                        
+                    elif self.finding_bottom == False and self.lows[idx] < self.last_bottom:
+                        # Found new bottom when searching top, last bottom is fake bottom, keep search bottom
+                        self.finding_bottom = True
+                        # Revert time info of last bottom
+                        self.delta_time_bottom.recover()
+                        self.last_bottom_time.recover()
+                        self.last_checked_time -= 60000
 
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:

@@ -174,25 +174,26 @@ def simulated_trade():
     
     k_same_points_delta = 0.9
     k_other_points_delta = 0
-    k_from_latest_point = 0.4
+    k_from_latest_point = 0.6
     search_to_now = False
 
-    # ksol means k_same_points_delta, k_other_points_delta, k_from_latest_point
-    # SearchtoNow means search to max (currunt time, threshold) when update policy
-    # mfp means move fake point to the correct pos 
-    exp_name = 'ksol_{}_{}_{}{}_mfp'.format(k_same_points_delta, k_other_points_delta, 
+    # ksol: k_same_points_delta, k_other_points_delta, k_from_latest_point
+    # SearchtoNow: search to max (currunt time, threshold) when update policy
+    # mfp: move fake point to the correct pos
+    # frontEn: k_other_points_delta works as the front threshold
+    exp_name = 'ksol_{}_{}_{}{}_mfp_final'.format(k_same_points_delta, k_other_points_delta, 
                                         k_from_latest_point, '_SearchToNow' if search_to_now else '')
     
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
-                # Fake bottom
-                # start_str="2022-06-13 1:40 UTC+8",  end_str="2022/06/13 16:00 UTC+8", is_futures=True)
+                # Fake points
+                # start_str="2022-06-21 8:40 UTC+8",  end_str="2022/06/22 0:30 UTC+8", is_futures=True)
                 
                 # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
-                num=2000, is_futures=True)
-                # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
+                # num=2000, is_futures=True)
+                end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
