@@ -109,7 +109,7 @@ class Adaptor(ABC):
 
 class AdaptorBinance(Adaptor):
 
-    def __init__(self, usd_name, token_name, data:Data, log_en=True):
+    def __init__(self, usd_name, token_name, data:Data, log_en=True, leverage=2):
         super().__init__(usd_name, token_name, data, log_en)
         proxies = {
             "http": "http://127.0.0.1:8900",
@@ -117,8 +117,13 @@ class AdaptorBinance(Adaptor):
         }
         self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20})
         self._update_account_info()
+        self.balance(refresh_account=False, update=True)    # Update _balance
         self.time_minute = self._get_time_minute()
         self.data = data
+
+        if self.get_leverage() <= leverage:
+            self._set_leverage(leverage*2)
+        self.leverage = leverage
 
     def clear_open_orders(self):
         open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
@@ -132,11 +137,21 @@ class AdaptorBinance(Adaptor):
                 pass
         self._update_account_info()
 
-    def balance(self, refresh=False):
+    def total_value(self, refresh=False) -> float:
         if refresh:
             self._update_account_info()
         ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
-        return float(ust_amount['availableBalance'])
+        return float(ust_amount['marginBalance'])
+
+    def balance(self, refresh_account=False, update=False):
+        if refresh_account:
+            self._update_account_info()
+        
+        if update:
+            ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
+            self._balance = float(ust_amount['marginBalance']) - self.pos_value()
+        
+        return self._balance
 
     def pos_amount(self, refresh=False):
         if refresh:
@@ -153,7 +168,6 @@ class AdaptorBinance(Adaptor):
         earn = (price - self.entry_price(refresh)) * self.pos_amount()
         value = self.entry_value() + earn
         return value
-
 
     def entry_value(self, refresh=False) -> float:
         # Position value when opening
@@ -175,13 +189,11 @@ class AdaptorBinance(Adaptor):
         pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
         return int(pos['leverage'])
 
-
     def buy(self, params: PolicyToAdaptor) -> Optional[float]:
         return self.buy_or_sell(params, self.BUY)
 
     def sell(self, params: PolicyToAdaptor) -> Optional[float]:
         return self.buy_or_sell(params, self.SELL)
-
 
     def buy_or_sell(self, params: PolicyToAdaptor, side: OrderSide):
         # Return executed price, or None
@@ -196,8 +208,8 @@ class AdaptorBinance(Adaptor):
             reduce_pos_amount = reduce_pos_amount if reduce_pos_amount >= 0 else -reduce_pos_amount
             
             if params.reduce_only == False:
-                leverage = self.get_leverage()
-                balance = (self.balance() + self.pos_value()) * 0.95 # Make sure margin is enough
+                leverage = self.leverage
+                balance = self.balance() + self.pos_value()
                 pos_amount = leverage * balance / current_price
                 # pos_amount must be an integer multiple of self.token_min_pos
                 pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
@@ -213,6 +225,7 @@ class AdaptorBinance(Adaptor):
                 else:
                     executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
                 self._update_account_info()
+                self.balance(update=True)
             else:
                 executed_price = None
         else:
@@ -517,7 +530,7 @@ class AdaptorSimulator(Adaptor):
                 self.price_last_trade = price
 
             if params.reduce_only == False:
-                balance = self._balance * 0.95  # Keep same with Adaptor Binance
+                balance = self._balance
                 pos_amount = self.leverage * balance / price
                 # pos_amount must be an integer multiple of self.token_min_pos
                 pos_amount = pos_amount // self.token_min_pos * self.token_min_pos

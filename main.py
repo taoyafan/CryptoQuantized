@@ -110,12 +110,16 @@ def real_trade():
     token_name='LUNA2'
     log_en = True
     analyze_en = True
-
     policy_private_log = True
+
+    k_same_points_delta = 0.9
+    k_other_points_delta = 0
+    k_from_latest_point = 0.6
+    search_to_now = False
 
     # Updata data to latest
     data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, is_futures=True)
-    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en)
+    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en, leverage=2)
     data.set_client(adaptor.client)
     data.update(end_str="1 minute ago UTC+8")
     data.replace_data_with_range(num=2000)
@@ -123,26 +127,37 @@ def real_trade():
 
     # Update policy
     timestamp = int(data.get_value(DataElements.OPEN_TIME, 0))
-    policy = PolicyBreakThrough(timestamp, log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log)
+    policy = PolicyBreakThrough(timestamp, log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log,
+        k_same_points_delta = k_same_points_delta,
+        k_other_points_delta = k_other_points_delta,
+        k_from_latest_point = k_from_latest_point,
+        search_to_now = search_to_now)
+
     for i in range(data.len()):
         policy.update(high = data.get_value(DataElements.HIGH, i),
                       low = data.get_value(DataElements.LOW, i),
                       timestamp = int(data.get_value(DataElements.OPEN_TIME, i)))
-
+    
+    error_occured = False
+    
     while True:
         try:
+            if error_occured:
+                error_occured = False
+                adaptor.clear_open_orders()
+                time.sleep(30)
+                if data.update(end_str="1 minute ago UTC+8"):
+                    policy.update(high = data.get_value(DataElements.HIGH, -1),
+                                low = data.get_value(DataElements.LOW, -1),
+                                timestamp = int(data.get_value(DataElements.OPEN_TIME, -1)))
+
             main_loop(adaptor, policy, log_en)
         except KeyboardInterrupt:
             break
         except Exception as ex:
             # traceback.print_exc()
-            adaptor.clear_open_orders()
             print(ex)
-            time.sleep(30)
-            if data.update(end_str="1 minute ago UTC+8"):
-                policy.update(high = data.get_value(DataElements.HIGH, -1),
-                            low = data.get_value(DataElements.LOW, -1),
-                            timestamp = int(data.get_value(DataElements.OPEN_TIME, -1)))
+            error_occured = True
 
 
 def simulated_trade():
@@ -159,7 +174,7 @@ def simulated_trade():
     
     k_same_points_delta = 0.9
     k_other_points_delta = 0
-    k_from_latest_point = 0.6
+    k_from_latest_point = 0.4
     search_to_now = False
 
     # ksol means k_same_points_delta, k_other_points_delta, k_from_latest_point
@@ -176,8 +191,8 @@ def simulated_trade():
                 # start_str="2022-06-13 1:40 UTC+8",  end_str="2022/06/13 16:00 UTC+8", is_futures=True)
                 
                 # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
-                # num=6000, is_futures=True)
-                end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
+                num=2000, is_futures=True)
+                # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
