@@ -116,14 +116,17 @@ class AdaptorBinance(Adaptor):
             "https": "http://127.0.0.1:8900",
         }
         self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20})
+
         self._update_account_info()
+        
+        if self.get_leverage() <= leverage:
+            self._set_leverage(leverage*2)
+        self.leverage = leverage
+
         self.balance(refresh_account=False, update=True)    # Update _balance
         self.time_minute = self._get_time_minute()
         self.data = data
 
-        if self.get_leverage() <= leverage:
-            self._set_leverage(leverage*2)
-        self.leverage = leverage
 
     def clear_open_orders(self):
         open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
@@ -174,7 +177,7 @@ class AdaptorBinance(Adaptor):
         # Refresh once is enough
         pos_amount = self.pos_amount()
         pos_amount = pos_amount if pos_amount >= 0 else -pos_amount
-        return self.entry_price(refresh) * pos_amount / self.get_leverage()
+        return self.entry_price(refresh) * pos_amount / self.leverage
 
     def entry_price(self, refresh=False) -> float:
         if refresh:
@@ -530,7 +533,7 @@ class AdaptorSimulator(Adaptor):
                 self.price_last_trade = price
 
             if params.reduce_only == False:
-                balance = self._balance
+                balance = self._balance * 0.95
                 pos_amount = self.leverage * balance / price
                 # pos_amount must be an integer multiple of self.token_min_pos
                 pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
