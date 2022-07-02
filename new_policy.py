@@ -189,8 +189,8 @@ class PolicyBreakThrough(Policy):
         th_other_point_delta = int((next_other_point_time_min - checked_time) // 60000) + self.MIN_THRESHOLD
         th_latest_point_delta = int(delta_time_latest_point // 60000)
 
-        # self.front_threshold = max(1, th_other_point_delta-self.MIN_THRESHOLD)
-        self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_other_point_delta, th_latest_point_delta)
+        # self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_other_point_delta, th_latest_point_delta)
+        self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_latest_point_delta)
 
     def update(self, high: float, low: float, timestamp: int):
         # Update highs, lows
@@ -222,51 +222,30 @@ class PolicyBreakThrough(Policy):
 
                 # Finding bottom and top
                 if self.finding_bottom:
-                    assert idx + self.threshold + 1 <= len(self.lows)
+                    time_after_last = self.last_checked_time - self.last_bottom_time.value
+                    min_delta = self.k_other_points_delta * self.delta_time_bottom.value
 
                     if (self.lows[idx] <= self.lows[idx: end_idx]).all() and (
-                        self.lows[idx] <= self.lows[idx-self.front_threshold: idx]).all():
+                        self.lows[idx] <= self.lows[idx-self.front_threshold: idx]).all() and (
+                        time_after_last > min_delta):
                         # Is bottom
                         found_bottom = True
                         self.finding_bottom = False
 
                 else:
+                    time_after_last = self.last_checked_time - self.last_top_time.value
+                    min_delta = self.k_other_points_delta * self.delta_time_top.value
+
                     if (self.highs[idx] >= self.highs[idx: end_idx]).all() and (
-                        self.highs[idx] >= self.highs[idx-self.front_threshold: idx]).all():
+                        self.highs[idx] >= self.highs[idx-self.front_threshold: idx]).all() and (
+                        time_after_last > min_delta):
                         # Is top
                         found_top = True
                         self.finding_bottom = True
 
                 # If found
                 if found_top or found_bottom:
-                    if found_top:
-                        self.last_top = self.highs[idx]
-                        self.delta_time_top.set(self.last_checked_time - self.last_top_time.value)
-                        self.last_top_time.set(self.last_checked_time)
-                        if self.analyze_en:
-                            self.tops.add(self.last_checked_time, self.last_top)
-                    
-                    if found_bottom:
-                        self.last_bottom = self.lows[idx]
-                        self.delta_time_bottom.set(self.last_checked_time - self.last_bottom_time.value)
-                        self.last_bottom_time.set(self.last_checked_time)
-                        if self.analyze_en:
-                            self.bottoms.add(self.last_checked_time, self.last_bottom)
-
-                    if self.policy_private_log:
-                        point_type = 'top' if found_top else 'bottom'
-                        price = self.last_top if found_top else self.last_bottom
-                        point_time = self.last_top_time.value if found_top else self.last_bottom_time.value
-
-                        self._log('{}: Found new {}, \tprice: {:.4f}, \tat  {}'.format(
-                            milliseconds_to_date(timestamp), 
-                            point_type, 
-                            price,
-                            milliseconds_to_date(point_time)))
-
-                    self.highs = self.highs[idx-self.front_threshold:]
-                    self.lows = self.lows[idx-self.front_threshold:]
-
+                    self._update_points(idx, timestamp, found_top, found_bottom)
                 # If not found the top and bottom check whether latest point is fake
                 else:
                     if self.finding_bottom and self.highs[idx] > self.last_top:
@@ -321,4 +300,34 @@ class PolicyBreakThrough(Policy):
     @property
     def sell_reasons(self) -> Set[str]:
         return {'Default'}
+
+    def _update_points(self, idx, timestamp, found_top, found_bottom):
+        if found_top or found_bottom:
+            if found_top:
+                self.last_top = self.highs[idx]
+                self.delta_time_top.set(self.last_checked_time - self.last_top_time.value)
+                self.last_top_time.set(self.last_checked_time)
+                if self.analyze_en:
+                    self.tops.add(self.last_checked_time, self.last_top)
+            
+            if found_bottom:
+                self.last_bottom = self.lows[idx]
+                self.delta_time_bottom.set(self.last_checked_time - self.last_bottom_time.value)
+                self.last_bottom_time.set(self.last_checked_time)
+                if self.analyze_en:
+                    self.bottoms.add(self.last_checked_time, self.last_bottom)
+
+            if self.policy_private_log:
+                point_type = 'top' if found_top else 'bottom'
+                price = self.last_top if found_top else self.last_bottom
+                point_time = self.last_top_time.value if found_top else self.last_bottom_time.value
+
+                self._log('{}: Found new {}, \tprice: {:.4f}, \tat  {}'.format(
+                    milliseconds_to_date(timestamp), 
+                    point_type, 
+                    price,
+                    milliseconds_to_date(point_time)))
+
+            self.highs = self.highs[idx-self.front_threshold:]
+            self.lows = self.lows[idx-self.front_threshold:]
 

@@ -173,15 +173,15 @@ def simulated_trade():
     save_info = False
     
     k_same_points_delta = 0.9
-    k_other_points_delta = 0
+    k_other_points_delta = 0.16
     k_from_latest_point = 0.6
     search_to_now = False
 
     # ksol: k_same_points_delta, k_other_points_delta, k_from_latest_point
     # SearchtoNow: search to max (currunt time, threshold) when update policy
     # mfp: move fake point to the correct pos
-    # frontEn: k_other_points_delta works as the front threshold
-    exp_name = 'ksol_{}_{}_{}{}_mfp_final'.format(k_same_points_delta, k_other_points_delta, 
+    # frontEn: k_other_points_delta works as the front min delta time
+    exp_name = 'ksol_{}_{}_{}{}_mfp_frontEn'.format(k_same_points_delta, k_other_points_delta, 
                                         k_from_latest_point, '_SearchToNow' if search_to_now else '')
     
     print('Exp name: {}'.format(exp_name))
