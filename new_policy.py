@@ -262,7 +262,6 @@ class PolicyBreakThrough(Policy):
                         # Revert time info of last bottom
                         self.delta_time_bottom.recover()
                         self.last_bottom_time.recover()
-                        self.last_checked_time -= 60000
 
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
