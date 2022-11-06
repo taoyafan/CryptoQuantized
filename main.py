@@ -162,38 +162,39 @@ def real_trade():
 
 def simulated_trade():
     usd_name = 'BUSD'
-    token_name='LUNA2'
+    # token_name='LUNA2'
     # token_name='1000LUNC'
     # token_name='DOGE'
     # token_name='GMT'
-    # token_name = 'BTC'
+    token_name = 'BTC'
 
     log_en = False
     analyze_en = True
     save_info = False
     
-    k_same_points_delta = 0.9
-    k_other_points_delta = 0.16
-    k_from_latest_point = 0.6
+    k_same_points_delta = 0
+    k_other_points_delta = 0
+    k_from_latest_point = 0
     search_to_now = False
 
     # ksol: k_same_points_delta, k_other_points_delta, k_from_latest_point
     # SearchtoNow: search to max (currunt time, threshold) when update policy
     # mfp: move fake point to the correct pos
     # frontEn: k_other_points_delta works as the front min delta time
-    exp_name = 'ksol_{}_{}_{}{}_mfp_frontEn'.format(k_same_points_delta, k_other_points_delta, 
+    exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
                                         k_from_latest_point, '_SearchToNow' if search_to_now else '')
     
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
-                # Fake points
-                # start_str="2022-06-21 8:40 UTC+8",  end_str="2022/06/22 0:30 UTC+8", is_futures=True)
+                # Test
+                # start_str="2022-07-4 17:00 UTC+8",  end_str="2022/07/4 23:00 UTC+8", is_futures=True)
                 
-                # start_str="2022/06/20 17:00 UTC+8", is_futures=True)
-                # num=2000, is_futures=True)
-                end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
+                # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
+                # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
+                num=4000, is_futures=True)
+                # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
@@ -238,7 +239,7 @@ if __name__ == "__main__":
     real = False
     if real:
         # Log to file
-        file_path = '.\\log\\log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-'))
+        file_path = os.path.join('log','log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
         print('Log to file: {}'.format(file_path))
         sys.stdout = Logger(file_path)
         real_trade()
