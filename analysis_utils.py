@@ -10,16 +10,20 @@ import numpy as np
 
 class SavedInfo():
     def __init__(self, data: Data, buy_points: IdxValue, sell_points: IdxValue, 
-                 tops: IdxValue, bottoms: IdxValue, earn_points: IdxValue):
+                 tops: IdxValue, bottoms: IdxValue, earn_points: IdxValue, 
+                 tops_confirm: IdxValue, bottoms_confirm: IdxValue):
         self.data: Data = data
         self.buy_points: IdxValue = buy_points    # time, value
         self.sell_points: IdxValue = sell_points  # time, value
         self.tops: IdxValue = tops                # time, value
         self.bottoms: IdxValue = bottoms          # time, value
         self.earn_points: IdxValue = earn_points
+        self.tops_confirm: IdxValue = tops_confirm
+        self.bottoms_confirm: IdxValue = bottoms_confirm
     
     def get_all(self):
-        return self.data, self.buy_points, self.sell_points, self.tops, self.bottoms, self.earn_points
+        return self.data, self.buy_points, self.sell_points, self.tops, self.bottoms, self.earn_points, \
+               self.tops_confirm, self.bottoms_confirm
 
 
 def read_data(symbol, exp_name, start, end) -> SavedInfo:
@@ -55,9 +59,11 @@ def read_data(symbol, exp_name, start, end) -> SavedInfo:
     sell_points = IdxValue(trade_info['sell_time'], trade_info['sell_price'])
     tops = IdxValue(vertices['top_time'], vertices['top_value'])
     bottoms = IdxValue(vertices['bottom_time'], vertices['bottom_value'])
+    tops_confirm = IdxValue(vertices['tops_confirm_time'], vertices['tops_confirm_value'])
+    bottoms_confirm = IdxValue(vertices['bottoms_confirm_time'], vertices['bottoms_confirm_value'])
     earn_points = IdxValue(earn_points_dict['earn_idx'], earn_points_dict['earn_value'])
     
-    return SavedInfo(data, buy_points, sell_points, tops, bottoms, earn_points)
+    return SavedInfo(data, buy_points, sell_points, tops, bottoms, earn_points, tops_confirm, bottoms_confirm)
 
 
 def get_combined_data(symbol, exp_name, start, end) -> DataFrame:
@@ -117,6 +123,6 @@ def get_combined_data(symbol, exp_name, start, end) -> DataFrame:
         return last_top, step_after_top, last_bottom, step_after_bottom, is_up, cycle_step, buy_price, sell_price
 
     df[new_col] = df.apply(
-        lambda x: fun(x), axis=1, result_type="expand")
+        lambda x: fun(x), axis=1, result_type="expand")  # type: ignore
     
     return df

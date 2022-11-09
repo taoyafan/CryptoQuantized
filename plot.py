@@ -43,6 +43,10 @@ class PricePlot:
         else:
             subplot.plot(range(0, len(self.data)), self.data['close'],  # type: ignore
                         color="gray", linewidth=1.0, label='base')
+                        
+        for ma in [60]:
+            subplot.plot(range(0, len(self.data)), self.data['close'].rolling(ma).mean())
+
         if points:
             for p in points:
                 subplot.scatter(p.idx, p.value, s=p.s, c=p.c, label=p.label)  # type: ignore
@@ -83,9 +87,6 @@ class PricePlot:
 
         mpl_finance.candlestick_ohlc(ax=subplot, quotes=ohlc.values,
                                      width=0.7, colorup='g', colordown='r')
-
-        # for ma in [5, 10, 30, 60]:
-        #     subplot.plot(self.data['dates'], self.data.close.rolling(ma).mean())
 
         subplot.set_ylabel('Price')
         return

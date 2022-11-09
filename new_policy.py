@@ -48,9 +48,9 @@ class Policy(ABC):
         if actual_price:
             time_str = adaptor.get_time_str()
             if side == OrderSide.BUY:
-                loss = (1 - params.price / actual_price)
+                loss = (1 - params.price / actual_price) if params.price > 0 else 0
             else:
-                loss = (1 - actual_price / params.price)
+                loss = (1 - actual_price / params.price) if params.price > 0 else 0
             self._log("{}: {}, price = {}, expect = {}, loss = {:.3f}%".format(
                 time_str, side.value, actual_price, params.price, loss*100))
 
@@ -169,6 +169,8 @@ class PolicyBreakThrough(Policy):
         if self.analyze_en:
             self.tops = IdxValue()
             self.bottoms = IdxValue()
+            self.tops_confirm = IdxValue()
+            self.bottoms_confirm = IdxValue()
 
     def _update_threshold(self, checked_time):
         # Last point
@@ -262,6 +264,7 @@ class PolicyBreakThrough(Policy):
                         # Revert time info of last bottom
                         self.delta_time_bottom.recover()
                         self.last_bottom_time.recover()
+                        self.last_checked_time -= 60000
 
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
@@ -284,6 +287,10 @@ class PolicyBreakThrough(Policy):
                 'top_value': self.tops.value,
                 'bottom_time': self.bottoms.idx,
                 'bottom_value': self.bottoms.value,
+                'tops_confirm_time': self.tops_confirm.idx,
+                'tops_confirm_value': self.tops_confirm.value,
+                'bottoms_confirm_time': self.bottoms_confirm.idx,
+                'bottoms_confirm_value': self.bottoms_confirm.value,
             }
 
             file_path = os.path.join(file_loc, '{}_start_{}_end_{}_vertices.json'.format(symbol, start, end))
@@ -308,6 +315,7 @@ class PolicyBreakThrough(Policy):
                 self.last_top_time.set(self.last_checked_time)
                 if self.analyze_en:
                     self.tops.add(self.last_checked_time, self.last_top)
+                    self.tops_confirm.add(timestamp, self.last_top)
             
             if found_bottom:
                 self.last_bottom = self.lows[idx]
@@ -315,6 +323,7 @@ class PolicyBreakThrough(Policy):
                 self.last_bottom_time.set(self.last_checked_time)
                 if self.analyze_en:
                     self.bottoms.add(self.last_checked_time, self.last_bottom)
+                    self.bottoms_confirm.add(timestamp, self.last_bottom)
 
             if self.policy_private_log:
                 point_type = 'top' if found_top else 'bottom'
@@ -330,3 +339,53 @@ class PolicyBreakThrough(Policy):
             self.highs = self.highs[idx-self.front_threshold:]
             self.lows = self.lows[idx-self.front_threshold:]
 
+class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
+    
+    ORDER_MARKET = PolicyToAdaptor(0, PolicyToAdaptor.ABOVE, 'Default')
+    DONOT_ORDER = PolicyToAdaptor(0, PolicyToAdaptor.BELLOW, 'Default')
+
+    def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
+        super().__init__(time, log_en, analyze_en, policy_private_log, **kwargs)
+        self.breakUp = False
+        self.breakDown = False
+        self.timestamp = 0
+
+    def update(self, high: float, low: float, timestamp: int):
+        last_top_time_temp = self.last_top_time.value
+        last_bottom_time_temp = self.last_bottom_time.value
+        
+        super().update(high, low, timestamp)
+        
+        # Clear break up / down if top or bottom changed.
+        if last_top_time_temp != self.last_top_time.value:
+            self.breakUp = False
+        if last_bottom_time_temp != self.last_bottom_time.value:
+            self.breakDown = False
+
+        if high > self.last_top:
+            self.breakUp = True
+            self.breakDown = False
+
+        if low < self.last_bottom:
+            self.breakUp = False
+            self.breakDown = True
+
+        self.timestamp = timestamp + 60000
+
+    def _get_params_buy(self) -> PolicyToAdaptor:
+        time_after_last_bottom: int = self.timestamp - self.last_bottom_time.value
+        min_delta_time: int = self.delta_time_bottom.value * (2 if self.finding_bottom else 1)
+        # min_delta_time: int = self.delta_time_bottom.value * 2
+        if self.breakUp and time_after_last_bottom >= min_delta_time:
+            return self.ORDER_MARKET
+        else:
+            return self.DONOT_ORDER
+    
+    def _get_params_sell(self) -> PolicyToAdaptor:
+        time_after_last_top: int = self.timestamp - self.last_bottom_time.value
+        min_delta_time: int = self.delta_time_top.value * (1 if self.finding_bottom else 2)
+        # min_delta_time: int = self.delta_time_top.value * 2
+        if self.breakDown and time_after_last_top >= min_delta_time:
+            return self.ORDER_MARKET
+        else:
+            return self.DONOT_ORDER

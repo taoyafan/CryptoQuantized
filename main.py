@@ -1,7 +1,7 @@
 import time
 import os
 from adapter import Adaptor, AdaptorBinance, AdaptorSimulator
-from new_policy import Policy, PolicyBreakThrough
+from new_policy import *
 from base_types import DataType, DataElements
 from data import Data
 from plot import PricePlot
@@ -76,14 +76,18 @@ def plot(data: Data, policy: PolicyBreakThrough, state: AccountState):
 
     tops = policy.tops
     bottoms = policy.bottoms
-    for point in [buy_points, sell_points, tops, bottoms]:
+    tops_confirm = policy.tops_confirm
+    bottoms_confirm = policy.bottoms_confirm
+    for point in [buy_points, sell_points, tops, bottoms, tops_confirm, bottoms_confirm]:
         point.idx = data.time_list_to_idx(point.idx)
 
     points = [
         PricePlot.Points(idx=buy_points.idx, value=buy_points.value, s=90, c='r', label='buy'),
         PricePlot.Points(idx=sell_points.idx, value=sell_points.value, s=90, c='g', label='sell'),
-        PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='top'),
+        PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='tops'),
         PricePlot.Points(idx=bottoms.idx, value=bottoms.value, s=30, c='y', label='bottoms'),
+        PricePlot.Points(idx=tops_confirm.idx, value=tops_confirm.value, s=10, c='m', label='tops_confirm'),
+        PricePlot.Points(idx=bottoms_confirm.idx, value=bottoms_confirm.value, s=10, c='orange', label='bottoms_confirm'),
     ]
     fig.plot(plot_candle=data.len()<=1100, points=points, earn_point=earn_point)
 
@@ -170,7 +174,7 @@ def simulated_trade():
 
     log_en = False
     analyze_en = True
-    save_info = False
+    save_info = True
     
     k_same_points_delta = 0
     k_other_points_delta = 0
@@ -181,9 +185,9 @@ def simulated_trade():
     # SearchtoNow: search to max (currunt time, threshold) when update policy
     # mfp: move fake point to the correct pos
     # frontEn: k_other_points_delta works as the front min delta time
-    exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
-                                        k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    
+    # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
+    #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
+    exp_name = "dynamic_1_delta_time"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -202,7 +206,8 @@ def simulated_trade():
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
     # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    policy = PolicyBreakThrough(
+    # policy = PolicyBreakThrough(
+    policy = PolicyDelayAfterBreakThrough(
         adaptor.get_timestamp(), 
         log_en=log_en, 
         analyze_en=analyze_en, 
