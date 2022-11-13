@@ -187,7 +187,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "dynamic_1_delta_time"
+    exp_name = "WaitFor40Min"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -197,7 +197,7 @@ def simulated_trade():
                 
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                num=4000, is_futures=True)
+                num=100000, is_futures=True)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
