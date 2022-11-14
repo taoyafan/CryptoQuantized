@@ -8,9 +8,14 @@ import os
 from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState, Recoverable
 from adapter import Adaptor
 from utils import date_to_milliseconds, milliseconds_to_date
+from plot import PricePlot
+from data import Data
 
 # Base class of policy
 class Policy(ABC):
+    
+    ORDER_MARKET = PolicyToAdaptor(0, PolicyToAdaptor.ABOVE, 'Default')
+    DONOT_ORDER = PolicyToAdaptor(0, PolicyToAdaptor.BELLOW, 'Default')
 
     class PointsType(Enum):
         EXPECT_BUY = auto()
@@ -97,7 +102,7 @@ class Policy(ABC):
             self.sell_state.log('sell', 'buy')
 
     @abstractmethod
-    def update(self, high: float, low: float, timestamp: int) -> None:
+    def update(self, high: float, low: float, close: float, volume: float, timestamp: int) -> None:
         return
     
     @abstractmethod
@@ -109,14 +114,12 @@ class Policy(ABC):
         return
 
     @property
-    @abstractmethod
     def buy_reasons(self) -> Set[str]:
-        return
+        return {'Default'}
 
     @property
-    @abstractmethod
     def sell_reasons(self) -> Set[str]:
-        return
+        return {'Default'}
 
     def save(self, file_loc: str, symbol: str, start, end):
         if self.analyze_en:
@@ -130,6 +133,20 @@ class Policy(ABC):
             file_path = os.path.join(file_loc, '{}_start_{}_end_{}_trade_info.json'.format(symbol, start, end))
             with open(file_path, 'w') as f:
                 json.dump(trade_info, f, indent=2)
+
+    def get_plot_points(self, data: Data) -> List[PricePlot.Points]:
+        buy_points = self.get_points(self.PointsType.ACTUAL_BUY)
+        sell_points = self.get_points(self.PointsType.ACTUAL_SELL)
+
+        points = [
+            PricePlot.Points(idx=buy_points.idx, value=buy_points.value, s=90, c='r', label='buy'),
+            PricePlot.Points(idx=sell_points.idx, value=sell_points.value, s=90, c='g', label='sell')
+        ]
+
+        for point in points:
+            point.idx = data.time_list_to_idx(point.idx)
+
+        return points
 
     def _log(self, s=''):
         if self.log_en:
@@ -194,7 +211,7 @@ class PolicyBreakThrough(Policy):
         # self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_other_point_delta, th_latest_point_delta)
         self.threshold = max(self.MIN_THRESHOLD, th_same_point_delta, th_latest_point_delta)
 
-    def update(self, high: float, low: float, timestamp: int):
+    def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
         # Update highs, lows
         self.highs = np.append(self.highs, high)
         self.lows = np.append(self.lows, low)
@@ -306,13 +323,25 @@ class PolicyBreakThrough(Policy):
             
             super().save(file_loc, symbol, start, end)
 
-    @property
-    def buy_reasons(self) -> Set[str]:
-        return {'Default'}
+    def get_plot_points(self, data: Data) -> List[PricePlot.Points]:
+        tops = self.tops
+        bottoms = self.bottoms
+        tops_confirm = self.tops_confirm
+        bottoms_confirm = self.bottoms_confirm
 
-    @property
-    def sell_reasons(self) -> Set[str]:
-        return {'Default'}
+        points = [
+            PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='tops'),
+            PricePlot.Points(idx=bottoms.idx, value=bottoms.value, s=30, c='y', label='bottoms'),
+            PricePlot.Points(idx=tops_confirm.idx, value=tops_confirm.value, s=10, c='m', label='tops_confirm'),
+            PricePlot.Points(idx=bottoms_confirm.idx, value=bottoms_confirm.value, s=10, c='orange', label='bottoms_confirm'),
+        ]
+
+        for point in points:
+            point.idx = data.time_list_to_idx(point.idx)
+
+        points += super().get_plot_points(data)
+
+        return points
 
     def _update_points(self, idx, timestamp, found_top, found_bottom):
         if found_top or found_bottom:
@@ -347,9 +376,6 @@ class PolicyBreakThrough(Policy):
             self.lows = self.lows[idx-self.front_threshold:]
 
 class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
-    
-    ORDER_MARKET = PolicyToAdaptor(0, PolicyToAdaptor.ABOVE, 'Default')
-    DONOT_ORDER = PolicyToAdaptor(0, PolicyToAdaptor.BELLOW, 'Default')
 
     def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
         super().__init__(time, log_en, analyze_en, policy_private_log, **kwargs)
@@ -359,11 +385,11 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
         self.break_down_time = 0
         self.timestamp = 0
 
-    def update(self, high: float, low: float, timestamp: int):
+    def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
         last_top_time_temp = self.last_top_time.value
         last_bottom_time_temp = self.last_bottom_time.value
         
-        super().update(high, low, timestamp)
+        super().update(high, low, close, volume, timestamp)
         
         # Clear break up / down if top or bottom changed.
         if last_top_time_temp != self.last_top_time.value:
@@ -383,36 +409,37 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
 
         self.timestamp = timestamp + 60000
 
-    # def _get_params_buy(self) -> PolicyToAdaptor:
-    #     time_after_last_bottom: int = self.timestamp - self.last_bottom_time.value
-    #     # min_delta_time: int = self.delta_time_bottom.value * (2 if self.finding_bottom else 1)
-    #     # min_delta_time: int = self.delta_time_bottom.value * 2
-    #     min_delta_time: int = 0
-    #     if self.break_up and time_after_last_bottom >= min_delta_time:
-    #         return self.ORDER_MARKET
-    #     else:
-    #         return self.DONOT_ORDER
-
     def _get_params_buy(self) -> PolicyToAdaptor:
-        time_after_break_up: int = self.timestamp - self.break_up_time
-        if self.break_up and time_after_break_up >= 40 * 60000:
+        time_after_last_bottom: int = self.timestamp - self.last_bottom_time.value
+        # min_delta_time: int = self.delta_time_bottom.value * (2 if self.finding_bottom else 1)
+        # min_delta_time: int = self.delta_time_bottom.value * 2
+        min_delta_time: int = 0
+        if self.break_up and time_after_last_bottom >= min_delta_time:
             return self.ORDER_MARKET
         else:
             return self.DONOT_ORDER
     
-    # def _get_params_sell(self) -> PolicyToAdaptor:
-    #     time_after_last_top: int = self.timestamp - self.last_bottom_time.value
-    #     # min_delta_time: int = self.delta_time_top.value * (1 if self.finding_bottom else 2)
-    #     # min_delta_time: int = self.delta_time_top.value * 2
-    #     min_delta_time: int = 0
-    #     if self.break_down and time_after_last_top >= min_delta_time:
+    def _get_params_sell(self) -> PolicyToAdaptor:
+        time_after_last_top: int = self.timestamp - self.last_bottom_time.value
+        # min_delta_time: int = self.delta_time_top.value * (1 if self.finding_bottom else 2)
+        # min_delta_time: int = self.delta_time_top.value * 2
+        min_delta_time: int = 0
+        if self.break_down and time_after_last_top >= min_delta_time:
+            return self.ORDER_MARKET
+        else:
+            return self.DONOT_ORDER
+
+    # def _get_params_buy(self) -> PolicyToAdaptor:
+    #     time_after_break_up: int = self.timestamp - self.break_up_time
+    #     if self.break_up and time_after_break_up >= 40 * 60000:
     #         return self.ORDER_MARKET
     #     else:
     #         return self.DONOT_ORDER
             
-    def _get_params_sell(self) -> PolicyToAdaptor:
-        time_after_break_down: int = self.timestamp - self.break_down_time
-        if self.break_down and time_after_break_down >= 40 * 60000:
-            return self.ORDER_MARKET
-        else:
-            return self.DONOT_ORDER
+    # def _get_params_sell(self) -> PolicyToAdaptor:
+    #     time_after_break_down: int = self.timestamp - self.break_down_time
+    #     if self.break_down and time_after_break_down >= 40 * 60000:
+    #         return self.ORDER_MARKET
+    #     else:
+    #         return self.DONOT_ORDER
+

@@ -44,7 +44,7 @@ class PricePlot:
             subplot.plot(range(0, len(self.data)), self.data['close'],  # type: ignore
                         color="gray", linewidth=1.0, label='base')
                         
-        for ma in [60]:
+        for ma in [60, 240]:
             subplot.plot(range(0, len(self.data)), self.data['close'].rolling(ma).mean())
 
         if points:
@@ -58,7 +58,7 @@ class PricePlot:
             subplot.scatter(datum['low']['idx'], datum['low']['value'], s=30, c='y', label="low") # type: ignore
         if datum_lines:
             self._datum_lines_plot(subplot, datum_lines)
-        plt.legend()
+        # plt.legend()
         num += 1
 
         if plot_vol:
@@ -77,7 +77,7 @@ class PricePlot:
                 return self.data.timestamp.values[int(x)]
             subplot.xaxis.set_major_formatter(ticker.FuncFormatter(format_date))
             
-        plt.legend()
+        # plt.legend()
         plt.show()
 
     def _candle_plot(self, subplot):

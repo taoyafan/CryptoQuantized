@@ -2,6 +2,7 @@ import time
 import os
 from adapter import Adaptor, AdaptorBinance, AdaptorSimulator
 from new_policy import *
+from policy_MA import PolicyMA
 from base_types import DataType, DataElements
 from data import Data
 from plot import PricePlot
@@ -49,8 +50,11 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
         if is_trade:
             state.update_analyzed_info(last_timestamp)
 
-        policy.update(high = adaptor.get_latest_kline_value(DataElements.HIGH),
+        policy.update(
+                    high = adaptor.get_latest_kline_value(DataElements.HIGH),
                     low = adaptor.get_latest_kline_value(DataElements.LOW),
+                    close = adaptor.get_latest_kline_value(DataElements.CLOSE),
+                    volume = adaptor.get_latest_kline_value(DataElements.VOLUME),
                     timestamp = last_timestamp)
         
         # Used for simulator
@@ -62,34 +66,17 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
     return state
 
 
-def plot(data: Data, policy: PolicyBreakThrough, state: AccountState):
+def plot(data: Data, policy: Policy, state: AccountState):
     open, high, low, close, open_time = data.get_columns([
         DataElements.OPEN, DataElements.HIGH, DataElements.LOW, DataElements.CLOSE, DataElements.OPEN_TIME])    
     open_time = open_time.map(milliseconds_to_date)
     
     fig = PricePlot(open, high, low, close, open_time)
-    
-    buy_points = policy.get_points(policy.PointsType.ACTUAL_BUY)
-    sell_points = policy.get_points(policy.PointsType.ACTUAL_SELL)
-    
     earn_point = state.get_earn_points(data)
 
-    tops = policy.tops
-    bottoms = policy.bottoms
-    tops_confirm = policy.tops_confirm
-    bottoms_confirm = policy.bottoms_confirm
-    for point in [buy_points, sell_points, tops, bottoms, tops_confirm, bottoms_confirm]:
-        point.idx = data.time_list_to_idx(point.idx)
-
-    points = [
-        PricePlot.Points(idx=buy_points.idx, value=buy_points.value, s=90, c='r', label='buy'),
-        PricePlot.Points(idx=sell_points.idx, value=sell_points.value, s=90, c='g', label='sell'),
-        PricePlot.Points(idx=tops.idx, value=tops.value, s=30, c='b', label='tops'),
-        PricePlot.Points(idx=bottoms.idx, value=bottoms.value, s=30, c='y', label='bottoms'),
-        PricePlot.Points(idx=tops_confirm.idx, value=tops_confirm.value, s=10, c='m', label='tops_confirm'),
-        PricePlot.Points(idx=bottoms_confirm.idx, value=bottoms_confirm.value, s=10, c='orange', label='bottoms_confirm'),
-    ]
-    fig.plot(plot_candle=data.len()<=1100, points=points, earn_point=earn_point)
+    fig.plot(plot_candle = data.len()<=1100, 
+             points      = policy.get_plot_points(data), 
+             earn_point  = earn_point)
 
 
 def final_log(data: Data, policy: Policy, state: AccountState):
@@ -137,11 +124,16 @@ def real_trade():
         k_from_latest_point = k_from_latest_point,
         search_to_now = search_to_now)
 
-    for i in range(data.len()):
+    def update_policy(i):
         policy.update(high = data.get_value(DataElements.HIGH, i),
                       low = data.get_value(DataElements.LOW, i),
+                      close = data.get_value(DataElements.CLOSE, i),
+                      volume = data.get_value(DataElements.VOLUME, i),
                       timestamp = int(data.get_value(DataElements.OPEN_TIME, i)))
-    
+
+    for i in range(data.len()):
+        update_policy(i)
+
     error_occured = False
     
     while True:
@@ -151,9 +143,7 @@ def real_trade():
                 adaptor.clear_open_orders()
                 time.sleep(30)
                 if data.update(end_str="1 minute ago UTC+8"):
-                    policy.update(high = data.get_value(DataElements.HIGH, -1),
-                                low = data.get_value(DataElements.LOW, -1),
-                                timestamp = int(data.get_value(DataElements.OPEN_TIME, -1)))
+                    update_policy(-1)
 
             main_loop(adaptor, policy, log_en)
         except KeyboardInterrupt:
@@ -174,7 +164,7 @@ def simulated_trade():
 
     log_en = False
     analyze_en = True
-    save_info = True
+    save_info = False
     
     k_same_points_delta = 0
     k_other_points_delta = 0
@@ -187,7 +177,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "WaitFor40Min"
+    exp_name = "MA"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -197,7 +187,7 @@ def simulated_trade():
                 
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                num=100000, is_futures=True)
+                num=1200, is_futures=True)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
@@ -207,16 +197,21 @@ def simulated_trade():
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
     # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
     # policy = PolicyBreakThrough(
-    policy = PolicyDelayAfterBreakThrough(
-        adaptor.get_timestamp(), 
-        log_en=log_en, 
-        analyze_en=analyze_en, 
-        policy_private_log=True,
+    # policy = PolicyDelayAfterBreakThrough(
+    #     adaptor.get_timestamp(), 
+    #     log_en = log_en, 
+    #     analyze_en = analyze_en, 
+    #     policy_private_log = True,
         
-        k_same_points_delta = k_same_points_delta,
-        k_other_points_delta = k_other_points_delta,
-        k_from_latest_point = k_from_latest_point,
-        search_to_now = search_to_now)
+    #     k_same_points_delta = k_same_points_delta,
+    #     k_other_points_delta = k_other_points_delta,
+    #     k_from_latest_point = k_from_latest_point,
+    #     search_to_now = search_to_now)
+
+    policy = PolicyMA(
+        step_width = 60,
+        log_en = log_en, 
+        analyze_en = analyze_en)
 
     start = time.time()
     state = main_loop(adaptor, policy, log_en)
