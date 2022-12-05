@@ -187,7 +187,7 @@ def simulated_trade():
                 
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                num=1200, is_futures=True)
+                num=100000, is_futures=True)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
@@ -209,7 +209,8 @@ def simulated_trade():
     #     search_to_now = search_to_now)
 
     policy = PolicyMA(
-        step_width = 60,
+        level_fast = 5,
+        level_slow = 15,
         log_en = log_en, 
         analyze_en = analyze_en)
 
