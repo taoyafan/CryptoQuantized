@@ -7,7 +7,7 @@ from enum import Enum
 from utils import milliseconds_to_date
 
 from api_key import API_KEY, SECRET_KEY
-from base_types import OrderSide, PolicyToAdaptor, DataElements
+from base_types import OrderSide, DirectionType, Order, DataElements, Recoverable, TradeInfo
 from data import Data
 
 class Adaptor(ABC):
@@ -45,13 +45,20 @@ class Adaptor(ABC):
         self.order_id = 0
 
     @abstractmethod
-    def buy(self, params: PolicyToAdaptor) -> Optional[float]:
-        # Return executed price, or None
+    def create_order(self, order: Order) -> Order.State:
         return
 
     @abstractmethod
-    def sell(self, params: PolicyToAdaptor) -> Optional[float]:
-        # Return executed price, or None
+    def update_order(self, order: Order) -> Order.State:
+        return
+
+    @abstractmethod
+    def cancel_order(self, order: Order) -> bool:
+        return
+
+    @abstractmethod
+    def try_to_trade(self, price: float, direction: DirectionType, 
+                     side: OrderSide, reduce_only: bool) -> Optional[float]:
         return
 
     @abstractmethod
@@ -192,25 +199,32 @@ class AdaptorBinance(Adaptor):
         pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
         return int(pos['leverage'])
 
-    def buy(self, params: PolicyToAdaptor) -> Optional[float]:
-        return self.buy_or_sell(params, self.BUY)
+    # TODO
+    def create_order(self, order: Order) -> Order.State:
+        raise NotImplementedError(self.__class__.__name__) 
 
-    def sell(self, params: PolicyToAdaptor) -> Optional[float]:
-        return self.buy_or_sell(params, self.SELL)
+    # TODO
+    def update_order(self, order: Order) -> Order.State:
+        raise NotImplementedError(self.__class__.__name__) 
 
-    def buy_or_sell(self, params: PolicyToAdaptor, side: OrderSide):
+    # TODO
+    def cancel_order(self, order: Order) -> bool:
+        raise NotImplementedError(self.__class__.__name__) 
+
+    def try_to_trade(self, price: float, direction: DirectionType, 
+                    side: OrderSide, reduce_only: bool) -> Optional[float]:
         # Return executed price, or None
         other_side = OrderSide.BUY if side == OrderSide.SELL else OrderSide.SELL
         current_price = self.get_price(other_side)
         executed_price = None
-        if (params.direction == params.ABOVE and current_price > params.price) or (
-            params.direction == params.BELLOW and current_price < params.price
+        if (direction == DirectionType.ABOVE and current_price > price) or (
+            direction == DirectionType.BELLOW and current_price < price
         ):
             # Reduce amount
             reduce_pos_amount = self.pos_amount()
             reduce_pos_amount = reduce_pos_amount if reduce_pos_amount >= 0 else -reduce_pos_amount
             
-            if params.reduce_only == False:
+            if reduce_only == False:
                 leverage = self.leverage
                 balance = self.balance() + self.pos_value()
                 pos_amount = leverage * balance / current_price
@@ -223,10 +237,8 @@ class AdaptorBinance(Adaptor):
             pos_amount += reduce_pos_amount
             
             if pos_amount >= self.token_min_pos:
-                if params.is_order_market:
-                    executed_price = self._order_market_wait_finished(side, pos_amount)
-                else:
-                    executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
+                # executed_price = self._order_market_wait_finished(side, pos_amount)
+                executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
                 self._update_account_info()
                 self.balance(update=True)
             else:
@@ -513,28 +525,72 @@ class AdaptorSimulator(Adaptor):
 
         self.price_last_trade = 0
 
-    def buy(self, params: PolicyToAdaptor) -> Optional[float]:
-        # Return executed price, or None
-        return self.buy_or_sell(params, self.BUY)
+    def create_order(self, order: Order) -> Order.State:
+        return self.update_order(order)
 
-    def sell(self, params: PolicyToAdaptor) -> Optional[float]:
-        # Return executed price, or None
-        return self.buy_or_sell(params, self.SELL)
+    def update_order(self, order: Order) -> Order.State:
+        state: Order.State = order.state
+        last_state: Order.State = state
+        entered_info = order.entered_info
 
-    def buy_or_sell(self, params: PolicyToAdaptor, side: OrderSide):
+        while True:
+            last_state = state
+
+            if state == Order.State.CREATED or state == Order.State.SENDED:
+                if not entered_info.is_locked(self.get_timestamp()):
+                    # Can not send, Only move to entered when trade successfully
+                    if (self.try_to_trade(entered_info) is not None):
+                        state = Order.State.ENTERED
+
+            elif state == Order.State.ENTERED or state == Order.State.EXIT_SENDED:
+                if order.has_exit():
+                    all_exited_infos = order.exited_infos
+                    traded = False
+
+                    for info in all_exited_infos:
+                        if self.try_to_trade(info):
+                            # Traded successfully
+                            traded = True
+                            break
+
+                    if traded:
+                        state = Order.State.EXITED
+
+            else:
+                assert (state == Order.State.FINISHED or
+                        state == Order.State.CANCELED or
+                        state == Order.State.EXITED)
+                break
+
+            # No state changed, break
+            if state == last_state:
+                break
+
+        return state
+
+    def cancel_order(self, order: Order) -> bool:
+        return True
+
+    def try_to_trade(self, trade_info: TradeInfo) -> Optional[float]:
+        price       = trade_info.price
+        direction   = trade_info.direction
+        side        = trade_info.side
+        reduce_only = trade_info.reduce_only
+
         # Return executed price, or None
-        price = self._can_buy_or_sell(params)
-        if price:
+        trade_price = self._can_buy_or_sell(price, direction)
+        if trade_price:
+            trade_info.executed(trade_price, self.get_timestamp())
             # Reduce first
             if self.pos_amount() != 0:
                 # pos_value must called before clear pos_amount
-                self._balance += self.pos_value(price=price) * (1 - self.fee)
+                self._balance += self.pos_value(price=trade_price) * (1 - self.fee)
                 self._pos_amount = 0
-                self.price_last_trade = price
+                self.price_last_trade = trade_price
 
-            if params.reduce_only == False:
+            if reduce_only == False:
                 balance = self._balance * 0.95
-                pos_amount = self.leverage * balance / price
+                pos_amount = self.leverage * balance / trade_price
                 # pos_amount must be an integer multiple of self.token_min_pos
                 pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
 
@@ -544,11 +600,11 @@ class AdaptorSimulator(Adaptor):
                 if pos_amount >= self.token_min_pos:
                     # Update balance and pos_amount
                     self._pos_amount += pos_amount if side == self.BUY else -pos_amount
-                    total_u = pos_amount * price
+                    total_u = pos_amount * trade_price
                     self._balance -= total_u / self.leverage + total_u * self.fee
-                    self.price_last_trade = price
+                    self.price_last_trade = trade_price
 
-        return price
+        return trade_price
 
     def get_leverage(self) -> int:
         return self.leverage
@@ -600,14 +656,14 @@ class AdaptorSimulator(Adaptor):
 
         return int(timestamp)
 
-    def _can_buy_or_sell(self, params: PolicyToAdaptor) -> Optional[float]:
+    def _can_buy_or_sell(self, price: float, direction: DirectionType) -> Optional[float]:
         # Return executed price, or None
-        can_exe = (params.direction == params.BELLOW and self.get_price(self.LOW) < params.price) or (
-                   params.direction == params.ABOVE and self.get_price(self.HIGH) > params.price)
+        can_exe = (direction == DirectionType.BELLOW and self.get_price(self.LOW) < price) or (
+                   direction == DirectionType.ABOVE and self.get_price(self.HIGH) > price)
         if can_exe:
-            opt_fun = min if params.direction == params.BELLOW else max
-            price = opt_fun(params.price, self.get_price(self.OPEN))
+            opt_fun = min if direction == DirectionType.BELLOW else max
+            trade_price = opt_fun(price, self.get_price(self.OPEN))
         else:
-            price = None
+            trade_price = None
 
-        return price
+        return trade_price

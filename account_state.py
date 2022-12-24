@@ -1,6 +1,6 @@
-from sqlite3 import adapt
 from adapter import Adaptor
-from base_types import DataElements, IdxValue
+from base_types import DataElements, IdxValue, Order
+from typing import Dict, Optional, List, Set
 from data import Data
 import os
 import json
@@ -15,6 +15,9 @@ class AccountState:
         self.adaptor: Adaptor = adaptor
         self.analyze_en: bool = analyze_en
         self.log_en: bool = log_en
+        self.timestamp: int = 0
+        self.orders: set[Order] = set()
+
         if self.log_en:
             print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
 
@@ -39,24 +42,80 @@ class AccountState:
         else:
             return False
     
-    def update_analyzed_info(self, timestamp: int) -> None:
+    def create_order(self, order: Order) -> bool:
+        assert order not in self.orders, "Can not create the order which is already recorded"
+        order.add_canceled_call_back(self.cancel_order)
+
+        state = self.adaptor.create_order(order)    
+        order.set_state_to(state)
+        
+        if order.state == Order.State.FINISHED:
+            # Order executed immediately
+            self.update_pos()
+        else:
+            self.orders.add(order)
+        
+        return True
+    
+    def cancel_order(self, order: Order) -> bool:
+        assert order in self.orders, "Can not cancel the order which is not recorded"
+        canceled = self.adaptor.cancel_order(order)
+
+        if canceled:
+            order.set_state_to(Order.State.CANCELED)
+        else:
+            # Traded happend, can not cancel, update state to next traded
+            state = self.adaptor.update_order(order)
+            order.set_state_to(state)
+        
+        self.orders.remove(order)
+        return True
+
+    def update(self) -> None:
+        order_changed = False
+        
+        # Update orders
+        for od in self.orders:
+            state = self.adaptor.update_order(od)
+            if state != od.state:
+                order_changed = True
+                od.set_state_to(state)
+                if od.state == Order.State.FINISHED:
+                    self.orders.remove(od)
+
+        if order_changed:
+            self.update_pos()
+
+    def update_pos(self):
+        self.balance: float = self.adaptor.balance()
+        self.pos_amount: float = self.adaptor.pos_amount()
+        self.pos_value: float = self.adaptor.pos_value()
+
+        if self.log_en:
+            print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
+            print()
+
+        self.update_analyzed_info()
+
+    def get_timestamp(self) -> int:
+        return self.adaptor.get_timestamp()
+
+    def get_time_str(self) -> str:
+        return self.adaptor.get_time_str()
+
+    def update_analyzed_info(self) -> None:
         # Save analyze info
         if self.analyze_en:
-            self.update_times.append(timestamp)
+            self.update_times.append(self.timestamp)
             self.balance_history.append(self.balance)
             self.pos_amount_history.append(self.pos_amount)
             self.pos_value_history.append(self.pos_value)
             self.pos_entry_prices.append(self.adaptor.entry_price())
             self.pos_entry_values.append(self.adaptor.entry_value())
-
-    def update(self) -> None:
-        self.balance: float = self.adaptor.balance()
-        self.pos_amount: float = self.adaptor.pos_amount()
-        self.pos_value: float = self.adaptor.pos_value()
-        if self.log_en:
-            print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
-            print()
     
+    def update_each_time_step(self, timestamp: int):
+        self.timestamp = timestamp
+
     def earn_rate(self, price: float) -> float:
         # 1 represent 100% means no earn
         return self.earn(price) / self.init_balance
@@ -106,7 +165,7 @@ class AccountState:
                     close = data.get_value(DataElements.CLOSE, i-1)
                     while (j+1 < len(self.update_times) and \
                             self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
-                        (j+1 >= len(self.update_times) and i < data.len()):
+                          (j+1 >= len(self.update_times) and i < data.len()):
 
                         if self.pos_amount_history[j] != 0:
                             last_close = close

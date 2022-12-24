@@ -6,8 +6,9 @@ from enum import Enum, auto
 import json
 import os
 
-from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState, Recoverable
+from base_types import OrderSide, IdxValue, Order, OptState, Recoverable
 from adapter import Adaptor
+from account_state import AccountState
 from utils import date_to_milliseconds, milliseconds_to_date
 
 class RingBuffer:
@@ -96,8 +97,8 @@ class MAs:
 # Break up -> buy, Break down -> short
 class PolicyMA(Policy):
 
-    def __init__(self, level_fast, level_slow, log_en: bool=True, analyze_en: bool=True):
-        super().__init__(log_en, analyze_en)
+    def __init__(self, state: AccountState, level_fast, level_slow, log_en: bool=True, analyze_en: bool=True):
+        super().__init__(state, log_en, analyze_en)
         self.mas = MAs([level_fast, level_slow, level_slow * 16])
         self.level_slow = level_slow
         self.level_fast = level_fast
@@ -105,7 +106,7 @@ class PolicyMA(Policy):
     def update(self, high: float, low: float, close: float, volume: float, timestamp: int) -> None:
         self.mas.update(close)
 
-    def _get_params_buy(self) -> PolicyToAdaptor:
+    def _get_params_buy(self) -> Optional[Order]:
         ma_fast = self.mas.get_ma(self.level_fast)
         ma_slow = self.mas.get_ma(self.level_slow)
         ma_very_slow = self.mas.get_ma(self.level_slow * 16)
@@ -114,11 +115,12 @@ class PolicyMA(Policy):
            (ma_fast.mean_pre_1 - ma_slow.mean_pre_1) <= 0 and \
            (ma_very_slow.mean - ma_very_slow.mean_pre_2) >= 0:
 
-            return self.ORDER_MARKET
+            return Order(OrderSide.BUY, 0, Order.ABOVE, 'Default', 
+                self.account_state.get_timestamp())
         else:
-            return self.DONOT_ORDER
+            return None
             
-    def _get_params_sell(self) -> PolicyToAdaptor:
+    def _get_params_sell(self) -> Optional[Order]:
         ma_fast = self.mas.get_ma(self.level_fast)
         ma_slow = self.mas.get_ma(self.level_slow)
         ma_very_slow = self.mas.get_ma(self.level_slow * 16)
@@ -127,6 +129,7 @@ class PolicyMA(Policy):
            (ma_fast.mean_pre_1 - ma_slow.mean_pre_1) >= 0 and \
            (ma_very_slow.mean - ma_very_slow.mean_pre_2) < 0:
             
-            return self.ORDER_MARKET
+            return Order(OrderSide.SELL, 0, Order.ABOVE, 'Default', 
+                self.account_state.get_timestamp())
         else:
-            return self.DONOT_ORDER
+            return None

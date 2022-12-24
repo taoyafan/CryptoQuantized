@@ -12,8 +12,7 @@ import sys
 from account_state import AccountState
             
 
-def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
-    state = AccountState(adaptor, analyze_en=policy.analyze_en, log_en=log_en)
+def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=False):
 
     i = 0
     while True:
@@ -24,16 +23,15 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
         price = adaptor.get_price()
         is_trade = False
         while True:
+            state.update()
             # For dynamic price in one step
             if state.can_buy():
-                is_trade = policy.try_to_buy(adaptor)
+                if policy.try_to_buy():
+                    state.update()
 
-            if is_trade == False and state.can_sell():
-                is_trade = policy.try_to_sell(adaptor)
-
-            # If trade, update             
-            if is_trade:
-                state.update()
+            if state.can_sell():
+                if policy.try_to_sell():
+                    state.update()
 
             if adaptor.is_next_step():
                 break
@@ -45,11 +43,10 @@ def main_loop(adaptor: Adaptor, policy: Policy, log_en=False):
                 new_price = adaptor.get_price()
             price = new_price
         
-        last_timestamp = adaptor.get_timestamp()-60000
+        timestamp = adaptor.get_timestamp()
+        state.update_each_time_step(timestamp)
+        last_timestamp = timestamp - 60000
         
-        if is_trade:
-            state.update_analyzed_info(last_timestamp)
-
         policy.update(
                     high = adaptor.get_latest_kline_value(DataElements.HIGH),
                     low = adaptor.get_latest_kline_value(DataElements.LOW),
@@ -116,13 +113,21 @@ def real_trade():
     data.replace_data_with_range(num=2000)
     print('Data start with {}, end with {}'.format(data.start_time_str(), data.end_time_str()))
 
+    state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
+
     # Update policy
     timestamp = int(data.get_value(DataElements.OPEN_TIME, 0))
-    policy = PolicyBreakThrough(timestamp, log_en=log_en, analyze_en=analyze_en, policy_private_log=policy_private_log,
-        k_same_points_delta = k_same_points_delta,
+    policy = PolicyBreakThrough(
+        state                = state,
+        time                 = timestamp, 
+        log_en               = log_en, 
+        analyze_en           = analyze_en, 
+        policy_private_log   = policy_private_log,
+        k_same_points_delta  = k_same_points_delta,
         k_other_points_delta = k_other_points_delta,
-        k_from_latest_point = k_from_latest_point,
-        search_to_now = search_to_now)
+        k_from_latest_point  = k_from_latest_point,
+        search_to_now        = search_to_now
+        )
 
     def update_policy(i):
         policy.update(high = data.get_value(DataElements.HIGH, i),
@@ -145,7 +150,7 @@ def real_trade():
                 if data.update(end_str="1 minute ago UTC+8"):
                     update_policy(-1)
 
-            main_loop(adaptor, policy, log_en)
+            main_loop(state, adaptor, policy, log_en)
         except KeyboardInterrupt:
             break
         except Exception as ex:
@@ -162,7 +167,7 @@ def simulated_trade():
     # token_name='GMT'
     token_name = 'BTC'
 
-    log_en = False
+    log_en = True
     analyze_en = True
     save_info = False
     
@@ -187,7 +192,7 @@ def simulated_trade():
                 
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                num=100000, is_futures=True)
+                num=100, is_futures=True)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
@@ -195,27 +200,32 @@ def simulated_trade():
 
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=0.00038, log_en=log_en)
-    # policy = PolicyBreakThrough(adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    # policy = PolicyBreakThrough(
+
+    state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
+
+    # policy = PolicyBreakThrough(state, adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
+    # policy = PolicyBreakThrough( 
     # policy = PolicyDelayAfterBreakThrough(
-    #     adaptor.get_timestamp(), 
-    #     log_en = log_en, 
-    #     analyze_en = analyze_en, 
-    #     policy_private_log = True,
+        # state,
+        # adaptor.get_timestamp(), 
+        # log_en = log_en, 
+        # analyze_en = analyze_en, 
+        # policy_private_log = True,
         
-    #     k_same_points_delta = k_same_points_delta,
-    #     k_other_points_delta = k_other_points_delta,
-    #     k_from_latest_point = k_from_latest_point,
-    #     search_to_now = search_to_now)
+        # k_same_points_delta = k_same_points_delta,
+        # k_other_points_delta = k_other_points_delta,
+        # k_from_latest_point = k_from_latest_point,
+        # search_to_now = search_to_now)
 
     policy = PolicyMA(
+        state      = state,
         level_fast = 5,
         level_slow = 15,
-        log_en = log_en, 
+        log_en     = log_en, 
         analyze_en = analyze_en)
 
     start = time.time()
-    state = main_loop(adaptor, policy, log_en)
+    state = main_loop(state, adaptor, policy, log_en)
     end = time.time()
     print('Main loop execution time is {:.3f}s'.format(end - start))
 

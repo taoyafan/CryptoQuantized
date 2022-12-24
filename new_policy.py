@@ -5,17 +5,15 @@ from enum import Enum, auto
 import json
 import os
 
-from base_types import OrderSide, IdxValue, PolicyToAdaptor, OptState, Recoverable
+from base_types import OrderSide, IdxValue, TradeInfo, Order, OptState, Recoverable
 from adapter import Adaptor
+from account_state import AccountState
 from utils import date_to_milliseconds, milliseconds_to_date
 from plot import PricePlot
 from data import Data
 
 # Base class of policy
 class Policy(ABC):
-    
-    ORDER_MARKET = PolicyToAdaptor(0, PolicyToAdaptor.ABOVE, 'Default')
-    DONOT_ORDER = PolicyToAdaptor(0, PolicyToAdaptor.BELLOW, 'Default')
 
     class PointsType(Enum):
         EXPECT_BUY = auto()
@@ -23,41 +21,88 @@ class Policy(ABC):
         EXPECT_SELL = auto()
         ACTUAL_SELL = auto()
 
-    def __init__(self, log_en: bool, analyze_en):
+    def __init__(self, state: AccountState, log_en: bool, analyze_en: bool):
+        self.account_state: AccountState = state
         self.log_en = log_en            # Whether log
         self.analyze_en = analyze_en    # Whether save analyze data
         self.price_last_trade = 0
+        self.buy_order: Optional[Order] = None
+        self.sell_order: Optional[Order] = None
         
         if self.analyze_en:
             self.buy_state = OptState(self.buy_reasons, self.sell_reasons)
             self.sell_state = OptState(self.sell_reasons, self.buy_reasons)
 
-    def try_to_buy(self, adaptor: Adaptor) -> bool:
-        # Return whether bought
-        params_buy = self._get_params_buy()
-        actual_price = adaptor.buy(params_buy)
+    def try_to_buy(self) -> bool:
+        # Return whether create a new buying order
+        params_buy: Optional[Order] = self._get_params_buy()
+        return self._update_order(params_buy)
 
-        self.update_info(adaptor, OrderSide.BUY, params_buy, actual_price)
-
-        return True if actual_price else False
-
-    def try_to_sell(self, adaptor: Adaptor) -> bool:
-        # Return whether sold
+    def try_to_sell(self) -> bool:
+        # Return whether create a new selling order
         params_sell = self._get_params_sell()
-        actual_price = adaptor.sell(params_sell)
-        self.update_info(adaptor, OrderSide.SELL, params_sell, actual_price)
+        return self._update_order(params_sell)
 
-        return True if actual_price else False
+    def _update_order(self, new_order: Optional[Order]) -> bool:
+        is_created = False
+        if new_order:
+            side: OrderSide = new_order.side
+            new_order.add_traded_call_back(self.update_info)
+            new_order_valid = True
 
-    def update_info(self, adaptor: Adaptor, side: OrderSide, params: PolicyToAdaptor, actual_price: Optional[float]):
-        if actual_price:
-            time_str = adaptor.get_time_str()
+            order_exist = self.buy_order if side == OrderSide.BUY else self.sell_order
+            order_opposide = self.sell_order if side == OrderSide.BUY else self.buy_order
+
+            # if existed order finished we can just discard it.
+            if order_exist and order_exist.is_alive():
+
+                # if new order is equicalent to existed, no need to create a new one
+                if order_exist.equivalent_to(new_order):
+                    new_order_valid = False
+                else:
+                    # Otherwise, we need to cancel old order and create a new one
+                    is_canceled = self.account_state.cancel_order(order_exist)
+                    # Failed to cancel means it is traded.
+                    # New params only valid if the cancellation is successful
+                    new_order_valid = is_canceled
+            
+            if new_order_valid:
+                # Whether unexited sell order can be canceled
+                if (order_opposide                                 and
+                    order_opposide.is_alive()                      and
+                    order_opposide.has_exit()                      and
+                    order_opposide.state == Order.State.ENTERED    and
+                    order_opposide.exit_priority < new_order.enter_priority
+                   ):
+                    new_order.cancel_another_at_state(Order.State.ENTERED, order_opposide)
+                    order_opposide.cancel_another_at_state(Order.State.EXITED, new_order)
+
+                is_created = self.account_state.create_order(new_order)
+                if is_created:
+                    if side == OrderSide.BUY:
+                        self.buy_order = new_order
+                    else:
+                        self.sell_order = new_order
+            # if new_order_valid
+        # if new_order
+
+        return is_created
+
+    def update_info(self, trade: TradeInfo):
+        actual_price  = trade.executed_price
+        executed_time = trade.executed_time
+        side          = trade.side
+        price         = trade.price
+        reason        = trade.reason
+
+        if actual_price and executed_time:
+            time_str = milliseconds_to_date(executed_time)
             if side == OrderSide.BUY:
-                loss = (1 - params.price / actual_price) if params.price > 0 else 0
+                loss = (1 - price / actual_price) if price > 0 else 0
             else:
-                loss = (1 - actual_price / params.price) if params.price > 0 else 0
+                loss = (1 - actual_price / price) if price > 0 else 0
             self._log("{}: {}, price = {}, expect = {}, loss = {:.3f}%".format(
-                time_str, side.value, actual_price, params.price, loss*100))
+                time_str, side.value, actual_price, price, loss*100))
 
             # Save analyze info
             earn_rate = 0
@@ -74,10 +119,10 @@ class Policy(ABC):
                 side_state: OptState = self.buy_state if side == OrderSide.BUY else self.sell_state
                 other_state: OptState = self.sell_state if side == OrderSide.BUY else self.buy_state
                 
-                if other_state.pair_unfinished:
-                    other_state.add_left_part(params.reason, earn_rate)
+                if other_state.has_added_part:
+                    other_state.add_left_part(reason, earn_rate)
 
-                side_state.add_part(adaptor.get_timestamp(), params.price, actual_price, params.reason)
+                side_state.add_part(executed_time, price, actual_price, reason)
 
             self.price_last_trade = actual_price
 
@@ -106,11 +151,11 @@ class Policy(ABC):
         return
     
     @abstractmethod
-    def _get_params_buy(self) -> PolicyToAdaptor:
+    def _get_params_buy(self) -> Optional[Order]:
         return
     
     @abstractmethod
-    def _get_params_sell(self) -> PolicyToAdaptor:
+    def _get_params_sell(self) -> Optional[Order]:
         return
 
     @property
@@ -158,8 +203,8 @@ class PolicyBreakThrough(Policy):
 
     MIN_THRESHOLD = 30
 
-    def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
-        super().__init__(log_en, analyze_en)
+    def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
+        super().__init__(state, log_en, analyze_en)
         self.highs = np.empty(0)
         self.lows = np.empty(0)
         self.finding_bottom = True
@@ -294,15 +339,17 @@ class PolicyBreakThrough(Policy):
         # while confirmed_time <= timestamp:
         return
 
-    def _get_params_buy(self) -> PolicyToAdaptor:
+    def _get_params_buy(self) -> Order:
         idx = self.front_threshold + 1
         fake_top = np.max(self.highs[idx:]) if len(self.highs) > idx else 0
-        return PolicyToAdaptor(max(self.last_top, fake_top), PolicyToAdaptor.ABOVE, 'Default')
+        return Order(OrderSide.BUY, max(self.last_top, fake_top), Order.ABOVE, 'Default', 
+            self.account_state.get_timestamp())
     
-    def _get_params_sell(self) -> PolicyToAdaptor:
+    def _get_params_sell(self) -> Order:
         idx = self.front_threshold + 1
         fake_bottom = np.min(self.lows[idx:]) if len(self.lows) > idx else float('inf')
-        return PolicyToAdaptor(min(self.last_bottom, fake_bottom), PolicyToAdaptor.BELLOW, 'Default')
+        return Order(OrderSide.SELL, min(self.last_bottom, fake_bottom), Order.BELLOW, 'Default',
+            self.account_state.get_timestamp())
 
     def save(self, file_loc: str, symbol: str, start, end):
         if self.analyze_en:
@@ -409,37 +456,25 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
 
         self.timestamp = timestamp + 60000
 
-    def _get_params_buy(self) -> PolicyToAdaptor:
+    def _get_params_buy(self) -> Optional[Order]:
         time_after_last_bottom: int = self.timestamp - self.last_bottom_time.value
         # min_delta_time: int = self.delta_time_bottom.value * (2 if self.finding_bottom else 1)
         # min_delta_time: int = self.delta_time_bottom.value * 2
         min_delta_time: int = 0
         if self.break_up and time_after_last_bottom >= min_delta_time:
-            return self.ORDER_MARKET
+            return Order(OrderSide.BUY, 0, Order.ABOVE, 'Default', 
+                self.account_state.get_timestamp())
         else:
-            return self.DONOT_ORDER
+            return None
     
-    def _get_params_sell(self) -> PolicyToAdaptor:
+    def _get_params_sell(self) -> Optional[Order]:
         time_after_last_top: int = self.timestamp - self.last_bottom_time.value
         # min_delta_time: int = self.delta_time_top.value * (1 if self.finding_bottom else 2)
         # min_delta_time: int = self.delta_time_top.value * 2
         min_delta_time: int = 0
         if self.break_down and time_after_last_top >= min_delta_time:
-            return self.ORDER_MARKET
+            return Order(OrderSide.SELL, 0, Order.ABOVE, 'Default', 
+                self.account_state.get_timestamp())
         else:
-            return self.DONOT_ORDER
-
-    # def _get_params_buy(self) -> PolicyToAdaptor:
-    #     time_after_break_up: int = self.timestamp - self.break_up_time
-    #     if self.break_up and time_after_break_up >= 40 * 60000:
-    #         return self.ORDER_MARKET
-    #     else:
-    #         return self.DONOT_ORDER
-            
-    # def _get_params_sell(self) -> PolicyToAdaptor:
-    #     time_after_break_down: int = self.timestamp - self.break_down_time
-    #     if self.break_down and time_after_break_down >= 40 * 60000:
-    #         return self.ORDER_MARKET
-    #     else:
-    #         return self.DONOT_ORDER
+            return None
 
