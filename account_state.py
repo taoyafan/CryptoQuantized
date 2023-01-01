@@ -46,8 +46,9 @@ class AccountState:
         assert order not in self.orders, "Can not create the order which is already recorded"
         order.add_canceled_call_back(self.cancel_order)
 
-        state = self.adaptor.create_order(order)    
-        order.set_state_to(state)
+        state = self.adaptor.create_order(order)  
+        if state != order.state:  
+            order.set_state_to(state)
         
         if order.state == Order.State.FINISHED:
             # Order executed immediately
@@ -66,13 +67,15 @@ class AccountState:
         else:
             # Traded happend, can not cancel, update state to next traded
             state = self.adaptor.update_order(order)
-            order.set_state_to(state)
+            if state != order.state:
+                order.set_state_to(state)
         
         self.orders.remove(order)
         return True
 
     def update(self) -> None:
         order_changed = False
+        removed_orders: set[Order] = set()
         
         # Update orders
         for od in self.orders:
@@ -81,8 +84,11 @@ class AccountState:
                 order_changed = True
                 od.set_state_to(state)
                 if od.state == Order.State.FINISHED:
-                    self.orders.remove(od)
+                    removed_orders.add(od)
 
+        if len(removed_orders) > 0:
+            self.orders -= removed_orders
+        
         if order_changed:
             self.update_pos()
 

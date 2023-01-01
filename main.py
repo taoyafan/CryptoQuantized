@@ -167,7 +167,7 @@ def simulated_trade():
     # token_name='GMT'
     token_name = 'BTC'
 
-    log_en = True
+    log_en = False
     analyze_en = True
     save_info = False
     
@@ -192,7 +192,7 @@ def simulated_trade():
                 
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                num=100, is_futures=True)
+                num=100000, is_futures=True)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
@@ -204,25 +204,25 @@ def simulated_trade():
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
 
     # policy = PolicyBreakThrough(state, adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    # policy = PolicyBreakThrough( 
+    policy = PolicyBreakThrough( 
     # policy = PolicyDelayAfterBreakThrough(
-        # state,
-        # adaptor.get_timestamp(), 
-        # log_en = log_en, 
-        # analyze_en = analyze_en, 
-        # policy_private_log = True,
+        state,
+        adaptor.get_timestamp(), 
+        log_en = log_en, 
+        analyze_en = analyze_en, 
+        policy_private_log = True,
         
-        # k_same_points_delta = k_same_points_delta,
-        # k_other_points_delta = k_other_points_delta,
-        # k_from_latest_point = k_from_latest_point,
-        # search_to_now = search_to_now)
+        k_same_points_delta = k_same_points_delta,
+        k_other_points_delta = k_other_points_delta,
+        k_from_latest_point = k_from_latest_point,
+        search_to_now = search_to_now)
 
-    policy = PolicyMA(
-        state      = state,
-        level_fast = 5,
-        level_slow = 15,
-        log_en     = log_en, 
-        analyze_en = analyze_en)
+    # policy = PolicyMA(
+    #     state      = state,
+    #     level_fast = 5,
+    #     level_slow = 15,
+    #     log_en     = log_en, 
+    #     analyze_en = analyze_en)
 
     start = time.time()
     state = main_loop(state, adaptor, policy, log_en)

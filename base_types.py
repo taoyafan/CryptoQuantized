@@ -266,7 +266,7 @@ class Order:
 
     def set_state_to(self, state: State):
         assert state != Order.State.FINISHED, "Finished will be automatic set"
-        assert state.value > self.state.value, "State must move forward"
+        assert state.value >= self.state.value, "State must move forward"
 
         if state == Order.State.CANCELED:
             self._set_state(state)
@@ -286,7 +286,7 @@ class Order:
                self.has_exit(), "Move to exited without exit condition" 
 
         assert state.value - self.state.value == 1 or \
-               (state.value == Order.State.CANCELED and self.state != state), \
+               (state == Order.State.CANCELED and self.state != state), \
                "{} -> {}, Only allow one step increasing".format(self.state, state)
 
         if (state in self.cancel_at_state and 
@@ -353,8 +353,6 @@ class Order:
                 self.enter_priority  == order.enter_priority  and
                 self.reduce_only     == order.reduce_only     and
                 self.exit_priority   == order.exit_priority   and
-                self.cb_fun_traded   == order.cb_fun_traded   and
-                self.cb_fun_canceled == order.cb_fun_canceled and
                 is_enter_same                                 and 
                 is_exits_same)
                 

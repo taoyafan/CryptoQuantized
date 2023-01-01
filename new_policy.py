@@ -83,6 +83,8 @@ class Policy(ABC):
                         self.buy_order = new_order
                     else:
                         self.sell_order = new_order
+            else:
+                new_order.set_state_to(Order.State.CANCELED)
             # if new_order_valid
         # if new_order
 
