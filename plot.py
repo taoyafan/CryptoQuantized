@@ -44,8 +44,8 @@ class PricePlot:
             subplot.plot(range(0, len(self.data)), self.data['close'],  # type: ignore
                         color="gray", linewidth=1.0, label='base')
                         
-        for ma in [5, 15]:
-            subplot.plot(range(0, len(self.data)), self.data['close'].rolling(ma).mean())
+        # for ma in [5, 15]:
+        #     subplot.plot(range(0, len(self.data)), self.data['close'].rolling(ma).mean())
 
         if points:
             for p in points:

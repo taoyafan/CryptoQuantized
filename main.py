@@ -182,7 +182,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "MA"
+    exp_name = "PolicySwing"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -204,7 +204,8 @@ def simulated_trade():
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
 
     # policy = PolicyBreakThrough(state, adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
-    policy = PolicyBreakThrough( 
+    # policy = PolicyBreakThrough( 
+    policy = PolicySwing(
     # policy = PolicyDelayAfterBreakThrough(
         state,
         adaptor.get_timestamp(), 

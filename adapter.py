@@ -548,7 +548,7 @@ class AdaptorSimulator(Adaptor):
                     traded = False
 
                     for info in all_exited_infos:
-                        if self.try_to_trade(info):
+                        if not info.is_locked(self.get_timestamp()) and self.try_to_trade(info):
                             # Traded successfully
                             traded = True
                             break

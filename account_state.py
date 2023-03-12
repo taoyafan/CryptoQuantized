@@ -16,7 +16,12 @@ class AccountState:
         self.analyze_en: bool = analyze_en
         self.log_en: bool = log_en
         self.timestamp: int = 0
+
         self.orders: set[Order] = set()
+        # Marked the order need to be removed and will be removed when update
+        # This is added because inside loop the update, we may cancel some orders, but we
+        # can not remove it from orders, we need to mark them and remove them after loop.
+        self.removed_orders: set[Order] = set()
 
         if self.log_en:
             print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
@@ -70,28 +75,26 @@ class AccountState:
             if state != order.state:
                 order.set_state_to(state)
         
-        self.orders.remove(order)
+        self.removed_orders.add(order)
         return True
 
     def update(self) -> None:
-        order_changed = False
-        removed_orders: set[Order] = set()
-        
         # Update orders
         for od in self.orders:
-            state = self.adaptor.update_order(od)
-            if state != od.state:
-                order_changed = True
-                od.set_state_to(state)
-                if od.state == Order.State.FINISHED:
-                    removed_orders.add(od)
+            if od.is_alive():
+                state = self.adaptor.update_order(od)
+                
+                if state != od.state:
+                    od.set_state_to(state)
+                    if od.state == Order.State.FINISHED:
+                        self.removed_orders.add(od)
 
-        if len(removed_orders) > 0:
-            self.orders -= removed_orders
-        
-        if order_changed:
-            self.update_pos()
+        # Remove orders which are already canceled or finished
+        if len(self.removed_orders) > 0:
+            self.orders -= self.removed_orders
+            self.removed_orders = set()
 
+    # Each time traded need to call this function
     def update_pos(self):
         self.balance: float = self.adaptor.balance()
         self.pos_amount: float = self.adaptor.pos_amount()

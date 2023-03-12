@@ -91,10 +91,10 @@ def get_combined_data(symbol, exp_name, start, end) -> DataFrame:
         open_time = x['open_time']
 
         # Update top_idx and bottom_idx
-        if top_idx + 1 < len(top_time) and open_time >= int(top_time[top_idx + 1]):
+        if top_idx + 1 < len(top_time) and open_time >= int(top_time[top_idx + 1]) + 30*60000:
             top_idx += 1
 
-        if bottom_idx + 1 < len(bottom_time) and open_time >= int(bottom_time[bottom_idx + 1]):
+        if bottom_idx + 1 < len(bottom_time) and open_time >= int(bottom_time[bottom_idx + 1]) + 30*60000:
             bottom_idx += 1
         
         # Get last top and bottom

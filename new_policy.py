@@ -71,11 +71,10 @@ class Policy(ABC):
                 if (order_opposide                                 and
                     order_opposide.is_alive()                      and
                     order_opposide.has_exit()                      and
-                    order_opposide.state == Order.State.ENTERED    and
                     order_opposide.exit_priority < new_order.enter_priority
-                   ):
+                ):
                     new_order.cancel_another_at_state(Order.State.ENTERED, order_opposide)
-                    order_opposide.cancel_another_at_state(Order.State.EXITED, new_order)
+                    # order_opposide.cancel_another_at_state(Order.State.EXITED, new_order)
 
                 is_created = self.account_state.create_order(new_order)
                 if is_created:
@@ -96,6 +95,7 @@ class Policy(ABC):
         side          = trade.side
         price         = trade.price
         reason        = trade.reason
+        reduce_only   = trade.reduce_only
 
         if actual_price and executed_time:
             time_str = milliseconds_to_date(executed_time)
@@ -103,8 +103,12 @@ class Policy(ABC):
                 loss = (1 - price / actual_price) if price > 0 else 0
             else:
                 loss = (1 - actual_price / price) if price > 0 else 0
-            self._log("{}: {}, price = {}, expect = {}, loss = {:.3f}%".format(
-                time_str, side.value, actual_price, price, loss*100))
+            
+            if loss == 0:
+                price = actual_price
+            
+            self._log("{}: {}, price = {}, expect = {}, loss = {:.3f}%, reason = {}".format(
+                time_str, side.value, actual_price, price, loss*100, reason))
 
             # Save analyze info
             earn_rate = 0
@@ -124,9 +128,11 @@ class Policy(ABC):
                 if other_state.has_added_part:
                     other_state.add_left_part(reason, earn_rate)
 
-                side_state.add_part(executed_time, price, actual_price, reason)
+                side_state.add_part(executed_time, price, actual_price, reason, reduce_only)
 
             self.price_last_trade = actual_price
+
+            self.account_state.update_pos()
 
     def get_points(self, points_type: PointsType) -> IdxValue:
         # The idx is timestamp
@@ -366,7 +372,7 @@ class PolicyBreakThrough(Policy):
                 'bottoms_confirm_value': self.bottoms_confirm.value,
             }
 
-            file_path = os.path.join(file_loc, '{}_start_{}_end_{}_vertices.json'.format(symbol, start, end))
+            file_path = os.path.join(file_loc, '{}_start_{}_end_{}_vertices.json'.format(symbol, start, end)) # type: ignore            
             with open(file_path, 'w') as f:
                 json.dump(vertices, f, indent=2)
             
@@ -424,10 +430,11 @@ class PolicyBreakThrough(Policy):
             self.highs = self.highs[idx-self.front_threshold:]
             self.lows = self.lows[idx-self.front_threshold:]
 
+
 class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
 
-    def __init__(self, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
-        super().__init__(time, log_en, analyze_en, policy_private_log, **kwargs)
+    def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
+        super().__init__(state, time, log_en, analyze_en, policy_private_log, **kwargs)
         self.break_up = False
         self.break_down = False
         self.break_up_time = 0
@@ -480,3 +487,50 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
         else:
             return None
 
+
+class PolicySwing(PolicyBreakThrough):
+
+    def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
+        super().__init__(state, time, log_en, analyze_en, policy_private_log, **kwargs)
+        self.top_ordered = True
+        self.bottom_ordered = True
+
+    def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
+        last_top_time_temp = self.last_top_time.value
+        last_bottom_time_temp = self.last_bottom_time.value
+        
+        super().update(high, low, close, volume, timestamp)
+        
+        # Clear break up / down if top or bottom changed.
+        if last_top_time_temp != self.last_top_time.value:
+            self.top_ordered = False
+        if last_bottom_time_temp != self.last_bottom_time.value:
+            self.bottom_ordered = False
+
+    def _get_params_buy(self) -> Optional[Order]:
+        if (not self.bottom_ordered):
+            self.bottom_ordered = True
+            order = Order(OrderSide.BUY, self.last_bottom, Order.BELLOW, 'Long', 
+                self.account_state.get_timestamp()) 
+            order.add_exit(0, Order.ABOVE, "Long exit", lock_time=30*60000)
+            return order
+        else:
+            return None
+    
+    def _get_params_sell(self) -> Optional[Order]:
+        if (not self.top_ordered):
+            self.top_ordered = True
+            order = Order(OrderSide.SELL, self.last_top, Order.ABOVE, 'Short', 
+                self.account_state.get_timestamp())
+            order.add_exit(0, Order.ABOVE, "Short exit", lock_time=30*60000)
+            return order
+        else:
+            return None
+
+    @property
+    def buy_reasons(self) -> Set[str]:
+        return {'Long', 'Short exit'}
+
+    @property
+    def sell_reasons(self) -> Set[str]:
+        return {'Short', 'Long exit'}

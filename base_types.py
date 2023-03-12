@@ -245,7 +245,6 @@ class Order:
     def add_exit(self, price: float, 
                  direction: DirectionType, 
                  reason: str,
-                 time: int,
                  priority: Priority = Priority(2),
                  can_be_sended: bool = False,
                  lock_time: int = 0):
@@ -255,7 +254,8 @@ class Order:
                                            side          = self.side.the_other(),
                                            reason        = reason,
                                            reduce_only   = True,
-                                           can_be_sended = can_be_sended))
+                                           can_be_sended = can_be_sended,
+                                           lock_time     = lock_time))
         # Lowest exit priority
         if self.exit_priority is None or priority < self.exit_priority:
             self.exit_priority = priority
@@ -277,6 +277,8 @@ class Order:
                    self.state == Order.State.ENTERED
         if finished:
             self.state = Order.State.FINISHED
+            assert len(self.cancel_at_state) == 0, \
+                "Need to cancel all marked orders when finished"
 
     def _set_state(self, state: State):
         assert state != Order.State.FINISHED, "Finished will be automatic set"
@@ -289,11 +291,12 @@ class Order:
                (state == Order.State.CANCELED and self.state != state), \
                "{} -> {}, Only allow one step increasing".format(self.state, state)
 
-        if (state in self.cancel_at_state and 
-            self.cancel_at_state[state].state != Order.State.CANCELED
-        ):
-            canceled = self.cancel_at_state[state].cancel()
-            assert canceled, "Cancellation should be successful"
+        if state in self.cancel_at_state:
+            if (self.cancel_at_state[state].state != Order.State.CANCELED and \
+                self.cancel_at_state[state].state != Order.State.FINISHED
+            ):
+                canceled = self.cancel_at_state[state].cancel()
+                assert canceled, "Cancellation should be successful"
             del self.cancel_at_state[state]
 
         if state == self.State.ENTERED:
@@ -360,14 +363,11 @@ class Order:
     def __del__(self):
         assert self.state == Order.State.FINISHED or \
                self.state == Order.State.CANCELED, "Must move state to finished before destory"
-        
-        assert len(self.cancel_at_state) == 0 if self.state == Order.State.FINISHED else True, \
-            "Need to cancel all marked orders when finished"
 
 # Buy or sell state
 class OptState:
 
-    # if reasons is for buy, then other_reasons is for sell
+    # if reasons is for buying, then other_reasons is for selling
     def __init__(self, reasons: Set[str], other_reasons: Set[str]):
         assert len(reasons) > 0 and len(other_reasons) > 0
         
@@ -394,13 +394,14 @@ class OptState:
         self.last_reason = ''
         self.has_added_part = False
 
-    def add_part(self, idx: int, expect_price: float, actual_price: float, reason: str):
+    def add_part(self, idx: int, expect_price: float, actual_price: float, reason: str, reduce_only=False):
         assert self.has_added_part == False
         assert reason in self.reasons
 
         self._add_points(idx, expect_price, actual_price)
-        self.last_reason = reason
-        self.has_added_part = True
+        if not reduce_only:
+            self.last_reason = reason
+            self.has_added_part = True
         
     def add_left_part(self, other_reason: str, earn: float):
         assert self.has_added_part and self.last_reason != None
@@ -445,14 +446,15 @@ class OptState:
 
             for o_r in self.other_reasons:
                 earns = self.earns[r][o_r]
-                print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
-                    other_name, o_r, self.nums[r][o_r], 
-                    len([e for e in earns if e > 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
-                ))
+                if len(earns) > 0:
+                    print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                        other_name, o_r, self.nums[r][o_r], 
+                        len([e for e in earns if e > 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
+                    ))
                 earns_for_reason += earns
                 nums_for_reason += self.nums[r][o_r]
             
-            if len(self.other_reasons) > 1:
+            if len(self.other_reasons) > 1 and len(earns_for_reason) > 0:
                 print('- Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
                     nums_for_reason, len([e for e in earns_for_reason if e > 0]), 
                     np.mean(earns_for_reason)*100, max(earns_for_reason)*100, np.median(earns_for_reason), min(earns_for_reason)*100
@@ -460,7 +462,7 @@ class OptState:
             earns_for_all += earns_for_reason
             nums_for_all += nums_for_reason
 
-        if len(self.reasons) > 1:
+        if len(self.reasons) > 1 and len(earns_for_all) > 0:
             print('Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
                 nums_for_all, len([e > 0 for e in earns_for_all]), 
                     np.mean(earns_for_all)*100, max(earns_for_all)*100, np.median(earns_for_all), min(earns_for_all)*100
