@@ -8,7 +8,7 @@ import os
 from base_types import OrderSide, IdxValue, TradeInfo, Order, OptState, Recoverable
 from adapter import Adaptor
 from account_state import AccountState
-from utils import date_to_milliseconds, milliseconds_to_date
+from utils import date_to_milliseconds, milliseconds_to_date, MAs
 from plot import PricePlot
 from data import Data
 
@@ -33,14 +33,14 @@ class Policy(ABC):
             self.buy_state = OptState(self.buy_reasons, self.sell_reasons)
             self.sell_state = OptState(self.sell_reasons, self.buy_reasons)
 
-    def try_to_buy(self) -> bool:
+    def try_to_buy(self, new_step=False) -> bool:
         # Return whether create a new buying order
-        params_buy: Optional[Order] = self._get_params_buy()
+        params_buy: Optional[Order] = self._get_params_buy(new_step)
         return self._update_order(params_buy)
 
-    def try_to_sell(self) -> bool:
+    def try_to_sell(self, new_step=False) -> bool:
         # Return whether create a new selling order
-        params_sell = self._get_params_sell()
+        params_sell = self._get_params_sell(new_step)
         return self._update_order(params_sell)
 
     def _update_order(self, new_order: Optional[Order]) -> bool:
@@ -159,11 +159,11 @@ class Policy(ABC):
         return
     
     @abstractmethod
-    def _get_params_buy(self) -> Optional[Order]:
+    def _get_params_buy(self, new_step=False) -> Optional[Order]:
         return
     
     @abstractmethod
-    def _get_params_sell(self) -> Optional[Order]:
+    def _get_params_sell(self, new_step=False) -> Optional[Order]:
         return
 
     @property
@@ -230,7 +230,7 @@ class PolicyBreakThrough(Policy):
         self.last_top_time: Recoverable = Recoverable(time)
         self.delta_time_top: Recoverable = Recoverable(0)
 
-        self.last_bottom = 0
+        self.last_bottom = 0.0
         self.last_bottom_time: Recoverable = Recoverable(time)
         self.delta_time_bottom: Recoverable = Recoverable(0)
 
@@ -347,13 +347,13 @@ class PolicyBreakThrough(Policy):
         # while confirmed_time <= timestamp:
         return
 
-    def _get_params_buy(self) -> Order:
+    def _get_params_buy(self, new_step=False) -> Order:
         idx = self.front_threshold + 1
         fake_top = np.max(self.highs[idx:]) if len(self.highs) > idx else 0
         return Order(OrderSide.BUY, max(self.last_top, fake_top), Order.ABOVE, 'Default', 
             self.account_state.get_timestamp())
     
-    def _get_params_sell(self) -> Order:
+    def _get_params_sell(self, new_step=False) -> Order:
         idx = self.front_threshold + 1
         fake_bottom = np.min(self.lows[idx:]) if len(self.lows) > idx else float('inf')
         return Order(OrderSide.SELL, min(self.last_bottom, fake_bottom), Order.BELLOW, 'Default',
@@ -465,7 +465,7 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
 
         self.timestamp = timestamp + 60000
 
-    def _get_params_buy(self) -> Optional[Order]:
+    def _get_params_buy(self, new_step=False) -> Optional[Order]:
         time_after_last_bottom: int = self.timestamp - self.last_bottom_time.value
         # min_delta_time: int = self.delta_time_bottom.value * (2 if self.finding_bottom else 1)
         # min_delta_time: int = self.delta_time_bottom.value * 2
@@ -476,7 +476,7 @@ class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
         else:
             return None
     
-    def _get_params_sell(self) -> Optional[Order]:
+    def _get_params_sell(self, new_step=False) -> Optional[Order]:
         time_after_last_top: int = self.timestamp - self.last_bottom_time.value
         # min_delta_time: int = self.delta_time_top.value * (1 if self.finding_bottom else 2)
         # min_delta_time: int = self.delta_time_top.value * 2
@@ -494,12 +494,29 @@ class PolicySwing(PolicyBreakThrough):
         super().__init__(state, time, log_en, analyze_en, policy_private_log, **kwargs)
         self.top_ordered = True
         self.bottom_ordered = True
+        self.last_time = time
+        self.last_close = 0.0
+        self.sell_order_valid_until = 0
+        self.atr_level = 10
+        self.atr = MAs([self.atr_level])
 
     def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
-        last_top_time_temp = self.last_top_time.value
+        last_top_time_temp    = self.last_top_time.value
         last_bottom_time_temp = self.last_bottom_time.value
-        
+        self.last_time        = timestamp
+        self.last_close       = close
+
         super().update(high, low, close, volume, timestamp)
+
+        
+        self.atr.update(high-low)
+
+        # Whether cancel last order
+        if (timestamp >= self.sell_order_valid_until and 
+            self.sell_order and 
+            self.sell_order.not_entered()
+        ):
+            self.account_state.cancel_order(self.sell_order)
         
         # Clear break up / down if top or bottom changed.
         if last_top_time_temp != self.last_top_time.value:
@@ -507,25 +524,38 @@ class PolicySwing(PolicyBreakThrough):
         if last_bottom_time_temp != self.last_bottom_time.value:
             self.bottom_ordered = False
 
-    def _get_params_buy(self) -> Optional[Order]:
+    def _get_params_buy(self, new_step=False) -> Optional[Order]:
         if (not self.bottom_ordered):
             self.bottom_ordered = True
-            order = Order(OrderSide.BUY, self.last_bottom, Order.BELLOW, 'Long', 
-                self.account_state.get_timestamp()) 
-            order.add_exit(0, Order.ABOVE, "Long exit", lock_time=30*60000)
+            order = None
+            # order = Order(OrderSide.BUY, self.last_bottom, Order.BELLOW, 'Long', 
+            #     self.account_state.get_timestamp()) 
+            # order.add_exit(0, Order.ABOVE, "Long exit", lock_time=10*60000)
             return order
         else:
             return None
     
-    def _get_params_sell(self) -> Optional[Order]:
-        if (not self.top_ordered):
+    def _get_params_sell(self, new_step=False) -> Optional[Order]:
+        order = None
+        if (new_step and 
+            (not self.top_ordered) and 
+            (self.highs[-1] > self.last_top)
+        ):
             self.top_ordered = True
-            order = Order(OrderSide.SELL, self.last_top, Order.ABOVE, 'Short', 
+
+            atr = self.atr.get_ma(self.atr_level).mean / self.last_close
+            max = 1.0007571398183366 + 1.1536499457006657 * atr
+            dis = 0.0006954201367866048 + 0.6535741678896724 * atr
+
+            sell_price = self.last_close * (max + 3*dis)
+            # sell_price = self.last_close
+            
+            order = Order(OrderSide.SELL, sell_price, Order.ABOVE, 'Short', 
                 self.account_state.get_timestamp())
-            order.add_exit(0, Order.ABOVE, "Short exit", lock_time=30*60000)
-            return order
-        else:
-            return None
+            order.add_exit(0, Order.ABOVE, "Short exit", lock_time=10*60000)
+            self.sell_order_valid_until = self.last_time + 10*60000
+        
+        return order
 
     @property
     def buy_reasons(self) -> Set[str]:

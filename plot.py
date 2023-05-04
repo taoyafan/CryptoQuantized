@@ -1,7 +1,8 @@
 from typing import Dict, Optional, List
 import pandas as pd
 import matplotlib.pyplot as plt
-import mpl_finance
+from mplfinance.original_flavor import candlestick_ohlc
+import mplfinance as mpf
 import numpy as np
 from matplotlib import ticker
 
@@ -27,8 +28,8 @@ class PricePlot:
         self.data = self.data.reset_index(drop=True)
 
     def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, 
-             opt_point: Optional[OptPoints]=None, earn_point: Optional[IdxValue]=None, 
-             points: Optional[List[Points]]=None):
+             opt_point: OptPoints|None=None, earn_point: IdxValue|None=None, 
+             points: List[Points]|None=None, fig=plt.figure(figsize=(10, 5))):
 
         figure_num = 1
         figure_num += 1 if plot_vol else 0
@@ -37,7 +38,7 @@ class PricePlot:
             return
 
         num = 0
-        subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1)
+        subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1, fig=fig)
         if plot_candle:
             self._candle_plot(subplot)
         else:
@@ -84,8 +85,7 @@ class PricePlot:
         self.data['dates'] = np.arange(0, len(self.data))
         ohlc = self.data[['open', 'high', 'low', 'close']]
         ohlc = ohlc.reset_index()
-
-        mpl_finance.candlestick_ohlc(ax=subplot, quotes=ohlc.values,
+        candlestick_ohlc(ax=subplot, quotes=ohlc.values,
                                      width=0.7, colorup='g', colordown='r')
 
         subplot.set_ylabel('Price')

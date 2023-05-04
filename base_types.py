@@ -219,6 +219,9 @@ class Order:
     def add_canceled_call_back(self, cb_fun_canceled: Callable[[Order], bool]):
         self.cb_fun_canceled = cb_fun_canceled
 
+    def not_entered(self) -> bool:
+        return self.state.value < self.state.ENTERED.value
+
     def cancel(self) -> bool:
         canceled = False
 

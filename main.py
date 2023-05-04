@@ -22,15 +22,16 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
         # For each step
         price = adaptor.get_price()
         is_trade = False
+        new_step = True
         while True:
             state.update()
             # For dynamic price in one step
             if state.can_buy():
-                if policy.try_to_buy():
+                if policy.try_to_buy(new_step):
                     state.update()
 
             if state.can_sell():
-                if policy.try_to_sell():
+                if policy.try_to_sell(new_step):
                     state.update()
 
             if adaptor.is_next_step():
@@ -42,6 +43,7 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
                 time.sleep(0.2)
                 new_price = adaptor.get_price()
             price = new_price
+            new_step = False
         
         timestamp = adaptor.get_timestamp()
         state.update_each_time_step(timestamp)
@@ -161,6 +163,7 @@ def real_trade():
 
 def simulated_trade():
     usd_name = 'BUSD'
+    # usd_name = 'USDT'
     # token_name='LUNA2'
     # token_name='1000LUNC'
     # token_name='DOGE'
@@ -188,11 +191,11 @@ def simulated_trade():
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # Test
-                # start_str="2022-07-4 17:00 UTC+8",  end_str="2022/07/4 23:00 UTC+8", is_futures=True)
-                
+                # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=True)
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
                 num=100000, is_futures=True)
+                # start_str="2021/09/05 14:00 UTC+8", num=10000)
                 # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 

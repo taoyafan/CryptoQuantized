@@ -338,8 +338,8 @@ class Data:
 
 def main():
     # symbol = "BTCUSDT"
-    # symbol = "BTCBUSD"
-    symbol = "LUNA2BUSD"
+    symbol = "BTCBUSD"
+    # symbol = "LUNA2BUSD"
     # symbol = "GMTBUSD"
     # symbol = "DOGEBUSD"
     # symbol = "1000LUNCBUSD"
