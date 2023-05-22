@@ -62,13 +62,14 @@ class DirectionType(Enum):
 
 class TradeInfo:
     def __init__(self, price: float, direction: DirectionType, side: OrderSide, 
-                 reason: str, reduce_only: bool, can_be_sended: bool = False,
-                 lock_time: int = 0):
+                 reason: str, reduce_only: bool, leverage: int = 1,
+                 can_be_sended: bool = False, lock_time: int = 0):
         self.price: float = price
         self.direction: DirectionType = direction
         self.side: OrderSide = side
         self.reason: str = reason
         self.reduce_only: bool = reduce_only
+        self.leverage: float       = leverage
         self.can_be_sended: bool = can_be_sended
         
         # Info can be updated
@@ -176,6 +177,7 @@ class Order:
                  direction: DirectionType, 
                  reason: str, 
                  create_time: int,
+                 leverage: int = 1,
                  priority: Priority = Priority(2),
                  reduce_only: bool = False, 
                  can_be_sended: bool = False):
@@ -199,11 +201,12 @@ class Order:
                                       side          = self.side,
                                       reason        = reason,
                                       reduce_only   = reduce_only,
+                                      leverage      = leverage,
                                       can_be_sended = can_be_sended)
 
-        self.create_time = create_time
+        self.create_time    = create_time
         self.enter_priority = priority
-        self.reduce_only = reduce_only
+        self.reduce_only    = reduce_only
         
         # Exit params
         self.exited_infos: List[TradeInfo] = []
@@ -221,6 +224,13 @@ class Order:
 
     def not_entered(self) -> bool:
         return self.state.value < self.state.ENTERED.value
+    
+    def wiat_exited(self) -> bool:
+        return self.is_alive() and self.state.value >= self.state.ENTERED.value
+
+    def is_alive(self) -> bool:
+        return self.state != Order.State.FINISHED and \
+               self.state != Order.State.CANCELED
 
     def cancel(self) -> bool:
         canceled = False
@@ -323,7 +333,7 @@ class Order:
             # Calling exit call back function
             if self.cb_fun_traded:
                 for info in self.exited_infos:
-                    if info.is_executed:
+                    if info.is_executed():
                         self.cb_fun_traded(info)
                         break
 
@@ -346,10 +356,6 @@ class Order:
 
         return is_exits_same
 
-    def is_alive(self) -> bool:
-        return self.state != Order.State.FINISHED and \
-               self.state != Order.State.CANCELED
-
     def equivalent_to(self, order: 'Order') -> bool:
         is_enter_same = self.entered_info.equivalent_to(order.entered_info)
         is_exits_same = self._exits_equivalent_to(order)
@@ -363,9 +369,9 @@ class Order:
                 is_exits_same)
                 
 
-    def __del__(self):
-        assert self.state == Order.State.FINISHED or \
-               self.state == Order.State.CANCELED, "Must move state to finished before destory"
+    # def __del__(self):
+    #     assert self.state == Order.State.FINISHED or \
+    #            self.state == Order.State.CANCELED, "Must move state to finished before destory"
 
 # Buy or sell state
 class OptState:
@@ -409,6 +415,7 @@ class OptState:
     def add_left_part(self, other_reason: str, earn: float):
         assert self.has_added_part and self.last_reason != None
         assert other_reason in self.other_reasons
+        # assert earn != 0
 
         self.nums[self.last_reason][other_reason] += 1
         self.earns[self.last_reason][other_reason].append(earn)
@@ -452,15 +459,16 @@ class OptState:
                 if len(earns) > 0:
                     print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
                         other_name, o_r, self.nums[r][o_r], 
-                        len([e for e in earns if e > 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
+                        len([e for e in earns if e >= 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
                     ))
                 earns_for_reason += earns
                 nums_for_reason += self.nums[r][o_r]
             
             if len(self.other_reasons) > 1 and len(earns_for_reason) > 0:
-                print('- Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
-                    nums_for_reason, len([e for e in earns_for_reason if e > 0]), 
-                    np.mean(earns_for_reason)*100, max(earns_for_reason)*100, np.median(earns_for_reason), min(earns_for_reason)*100
+                earn_num = len([e for e in earns_for_reason if e >= 0])
+                print('- Total nums is {}, earn nums: {}, {:.2f}%, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                    nums_for_reason, earn_num, 100*earn_num/nums_for_reason, 
+                    np.mean(earns_for_reason)*100, np.median(earns_for_reason)*100, max(earns_for_reason)*100, min(earns_for_reason)*100
                 ))
             earns_for_all += earns_for_reason
             nums_for_all += nums_for_reason

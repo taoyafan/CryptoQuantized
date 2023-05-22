@@ -51,13 +51,10 @@ class AccountState:
         assert order not in self.orders, "Can not create the order which is already recorded"
         order.add_canceled_call_back(self.cancel_order)
 
-        state = self.adaptor.create_order(order)  
-        if state != order.state:  
-            order.set_state_to(state)
-        
+        self.adaptor.create_order(order)  
         if order.state == Order.State.FINISHED:
             # Order executed immediately
-            self.update_pos()
+            pass
         else:
             self.orders.add(order)
         
@@ -82,12 +79,10 @@ class AccountState:
         # Update orders
         for od in self.orders:
             if od.is_alive():
-                state = self.adaptor.update_order(od)
+                self.adaptor.update_order(od)
                 
-                if state != od.state:
-                    od.set_state_to(state)
-                    if od.state == Order.State.FINISHED:
-                        self.removed_orders.add(od)
+                if od.state == Order.State.FINISHED:
+                    self.removed_orders.add(od)
 
         # Remove orders which are already canceled or finished
         if len(self.removed_orders) > 0:

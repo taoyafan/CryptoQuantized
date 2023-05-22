@@ -565,10 +565,13 @@ class AdaptorSimulator(Adaptor):
             # No state changed, break
             if state == last_state:
                 break
+            else:
+                order.set_state_to(state)
 
         return state
 
     def cancel_order(self, order: Order) -> bool:
+        assert order.not_entered()
         return True
 
     def try_to_trade(self, trade_info: TradeInfo) -> Optional[float]:
@@ -576,6 +579,7 @@ class AdaptorSimulator(Adaptor):
         direction   = trade_info.direction
         side        = trade_info.side
         reduce_only = trade_info.reduce_only
+        leverage    = trade_info.leverage
 
         # Return executed price, or None
         trade_price = self._can_buy_or_sell(price, direction)
@@ -590,6 +594,7 @@ class AdaptorSimulator(Adaptor):
 
             if reduce_only == False:
                 balance = self._balance * 0.95
+                self.leverage = leverage
                 pos_amount = self.leverage * balance / trade_price
                 # pos_amount must be an integer multiple of self.token_min_pos
                 pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
@@ -658,8 +663,8 @@ class AdaptorSimulator(Adaptor):
 
     def _can_buy_or_sell(self, price: float, direction: DirectionType) -> Optional[float]:
         # Return executed price, or None
-        can_exe = (direction == DirectionType.BELLOW and self.get_price(self.LOW) < price) or (
-                   direction == DirectionType.ABOVE and self.get_price(self.HIGH) > price)
+        can_exe = (direction == DirectionType.BELLOW and self.get_price(self.LOW) <= price) or (
+                   direction == DirectionType.ABOVE and self.get_price(self.HIGH) >= price)
         if can_exe:
             opt_fun = min if direction == DirectionType.BELLOW else max
             trade_price = opt_fun(price, self.get_price(self.OPEN))

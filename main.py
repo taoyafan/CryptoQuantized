@@ -172,7 +172,7 @@ def simulated_trade():
 
     log_en = False
     analyze_en = True
-    save_info = False
+    save_info = True
     
     k_same_points_delta = 0
     k_other_points_delta = 0
@@ -185,7 +185,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "PolicySwing"
+    exp_name = "+-3Atr300"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -194,22 +194,26 @@ def simulated_trade():
                 # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=True)
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                # end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                # start_str="2021/09/05 14:00 UTC+8", num=10000)
-                # end_str='2022-07-01 15:00:00 UTC+8', is_futures=True)
+                end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
+                # start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
+                # start_str='2022-10-19 19:11:00 UTC+8', num=100000, is_futures=True)
+                # start_str='2023-01-01 00:00:00 UTC+8', num=100000, is_futures=True)
+                # num=100000, is_futures=True)
+                # start_str='2022-06-19 00:11:00 UTC+8', end_str='2022-06-19 19:41:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
 
+    fee = 0.0000
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
-                               leverage=1, data=data, fee=0.00038, log_en=log_en)
+                               leverage=1, data=data, fee=fee, log_en=log_en)
 
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
 
     # policy = PolicyBreakThrough(state, adaptor.get_timestamp(), log_en=log_en, analyze_en=analyze_en)
     # policy = PolicyBreakThrough( 
     policy = PolicySwing(
+    # policy = PolicyBreakWithMa300Low(
     # policy = PolicyDelayAfterBreakThrough(
         state,
         adaptor.get_timestamp(), 
@@ -220,7 +224,8 @@ def simulated_trade():
         k_same_points_delta = k_same_points_delta,
         k_other_points_delta = k_other_points_delta,
         k_from_latest_point = k_from_latest_point,
-        search_to_now = search_to_now)
+        search_to_now = search_to_now,
+        fee = fee)
 
     # policy = PolicyMA(
     #     state      = state,
