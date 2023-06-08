@@ -21,6 +21,7 @@ class Adaptor(ABC):
         'LUNA2': 1,
         'DOGE': 1,
         '1000LUNC': 1,
+        'SOL': 1,
     }
 
     token_min_price_precision_table = {
@@ -29,6 +30,7 @@ class Adaptor(ABC):
         'LUNA2': 4,
         'DOGE': 5,
         '1000LUNC': 4,
+        'SOL': 3,
     }
 
     def __init__(self, usd_name, token_name, data:Data, log_en):

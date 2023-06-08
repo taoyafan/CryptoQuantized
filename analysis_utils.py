@@ -133,6 +133,7 @@ class FeatTypes(Enum):
     DPRICE    = auto()
     TR        = auto()
     VOLUME    = auto()
+    VOL_TR    = auto()
     TRADE_NUM = auto()
     TARGET    = auto()
     OTHERS    = auto()
@@ -143,6 +144,7 @@ feat_base = {
     FeatTypes.DPRICE:    'close', 
     FeatTypes.TR:        'close', 
     FeatTypes.VOLUME:    'quote_assert_volume', 
+    FeatTypes.VOL_TR:    'volume/TR', 
     FeatTypes.TRADE_NUM: 'number_of_trades', 
     FeatTypes.TARGET:    'target', 
     FeatTypes.OTHERS:    'others' 
@@ -244,22 +246,25 @@ class FeatData:
         for feats_type in exist_feats:
             feats, ftype = feats_type
             for f in feats:
-                self.features[f] = Feat(f, ftype)
+                if f in self.df.columns:
+                    self.features[f] = Feat(f, ftype)
 
         for col in self.df.columns:
             if col not in self.features.keys():
                 self.features[col] = Feat(col, FeatTypes.OTHERS)
 
 
-def add_ave_features(data: FeatData, cycles = [3, 5, 10, 30, 100, 300], feat_names=['close', 'TR']):
-    new_ave_of_base = {
-        'MA': ['close', FeatTypes.PRICE],
-        'ATR': ['TR', FeatTypes.TR],
-        'AQAV': ['quote_assert_volume', FeatTypes.VOLUME],
-        'AT': ['number_of_trades', FeatTypes.TRADE_NUM],
-        'ATBQAV': ['taker_buy_quote_asset_volume', FeatTypes.VOLUME],
-        'ACS': ['cycle_step', FeatTypes.OTHERS]
-        }
+def add_ave_features(data: FeatData, cycles = [3, 5, 10, 30, 100, 300], feat_names=['close', 'TR'], new_ave_of_base=None):
+    if new_ave_of_base is None:
+        new_ave_of_base = {
+            'MA': ['close', FeatTypes.PRICE],
+            'ATR': ['TR', FeatTypes.TR],
+            'AQAV': ['quote_assert_volume', FeatTypes.VOLUME],
+            'AT': ['number_of_trades', FeatTypes.TRADE_NUM],
+            'ATBQAV': ['taker_buy_quote_asset_volume', FeatTypes.VOLUME],
+            'ACS': ['cycle_step', FeatTypes.OTHERS],
+            'AVT': ['volume/TR', FeatTypes.VOL_TR],
+            }
 
     for new_name in new_ave_of_base:  
         [base, ftype] = new_ave_of_base[new_name]

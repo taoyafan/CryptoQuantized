@@ -110,12 +110,20 @@ class AccountState:
     def update_analyzed_info(self) -> None:
         # Save analyze info
         if self.analyze_en:
-            self.update_times.append(self.timestamp)
-            self.balance_history.append(self.balance)
-            self.pos_amount_history.append(self.pos_amount)
-            self.pos_value_history.append(self.pos_value)
-            self.pos_entry_prices.append(self.adaptor.entry_price())
-            self.pos_entry_values.append(self.adaptor.entry_value())
+            if self.timestamp == self.update_times[-1]:
+                self.update_times[-1] = self.timestamp
+                self.balance_history[-1] = self.balance
+                self.pos_amount_history[-1] = self.pos_amount
+                self.pos_value_history[-1] = self.pos_value
+                self.pos_entry_prices[-1] = self.adaptor.entry_price()
+                self.pos_entry_values[-1] = self.adaptor.entry_value()
+            else:
+                self.update_times.append(self.timestamp)
+                self.balance_history.append(self.balance)
+                self.pos_amount_history.append(self.pos_amount)
+                self.pos_value_history.append(self.pos_value)
+                self.pos_entry_prices.append(self.adaptor.entry_price())
+                self.pos_entry_values.append(self.adaptor.entry_value())
     
     def update_each_time_step(self, timestamp: int):
         self.timestamp = timestamp
@@ -167,8 +175,9 @@ class AccountState:
 
                     # 2. Calculate earn until next update
                     close = data.get_value(DataElements.CLOSE, i-1)
+
                     while (j+1 < len(self.update_times) and \
-                            self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
+                           self.update_times[j+1] > data.get_value(DataElements.OPEN_TIME, i)) or \
                           (j+1 >= len(self.update_times) and i < data.len()):
 
                         if self.pos_amount_history[j] != 0:
