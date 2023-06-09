@@ -552,26 +552,24 @@ class PolicySwing(PolicyBreakThrough):
             self.can_buy == True
         ):
 
-            atr60 = self.atr.get_ma(60).mean / self.last_close
-            atr10 = self.atr.get_ma(10).mean / self.last_close
-            aer10 = self.aer.get_ma(10).mean / self.last_close
-            aer60 = self.aer.get_ma(60).mean / self.last_close
+            atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
+            atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
+            aer10 = self.aer.get_ma(10).mean / self.last_close + 0.000001
+            aer60 = self.aer.get_ma(60).mean / self.last_close + 0.000001
             
             buy_price = self.last_top
             # sell_atr = 1 - (atr10 - 0.000260) / (0.00228 - 0.000260) * 0.5
             sell_atr = 0.5
             sell_price = buy_price * (1 + sell_atr * atr10)
             stop_price = buy_price * (1 - sell_atr * atr10 / 2)
-            p = 0.7
+            p = 0.6
             possible_loss = buy_price - stop_price
             
-            # rw = (sell_price - buy_price) / buy_price
-            # rl = possible_loss / buy_price
             rw = (sell_price - buy_price) / buy_price - 2 * self.fee
             rl = possible_loss / buy_price + 2 * self.fee
             leverage = p / rl - (1 - p) / rw
-            leverage = int(leverage // 5)
-            # leverage = 1
+            leverage = min(5, int(leverage // 1))
+            # leverage = 5
 
             # dtop = (self.last_top - self.last_close) / self.last_close / atr60
 

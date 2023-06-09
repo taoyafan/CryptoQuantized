@@ -118,24 +118,27 @@ class Adaptor(ABC):
 
 class AdaptorBinance(Adaptor):
 
-    def __init__(self, usd_name, token_name, data:Data, log_en=True, leverage=2):
+    def __init__(self, usd_name, token_name, data:Data, log_en=True, leverage=2, is_futures=True):
         super().__init__(usd_name, token_name, data, log_en)
         proxies = {
             "http": "http://127.0.0.1:8900",
             "https": "http://127.0.0.1:8900",
         }
-        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20})
-
+        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20}) # type: ignore
+        self.is_futures = is_futures
         self._update_account_info()
         
-        if self.get_leverage() <= leverage:
-            self._set_leverage(leverage*2)
-        self.leverage = leverage
+        if self.is_futures:
+            if self.get_leverage() <= leverage:
+                self._set_leverage(leverage*2)
+            self.leverage = leverage
+        
+        self.leverage = self.get_leverage()
 
         self.balance(refresh_account=False, update=True)    # Update _balance
         self.time_minute = self._get_time_minute()
         self.data = data
-
+        self.price_last_trade = 0
 
     def clear_open_orders(self):
         open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
@@ -152,54 +155,85 @@ class AdaptorBinance(Adaptor):
     def total_value(self, refresh=False) -> float:
         if refresh:
             self._update_account_info()
-        ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
-        return float(ust_amount['marginBalance'])
+        
+        if self.is_futures:
+            ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
+            value = float(ust_amount['marginBalance'])
+        else:
+            value = self.balance() + self.pos_value()
+        
+        return value
 
     def balance(self, refresh_account=False, update=False):
         if refresh_account:
             self._update_account_info()
         
-        if update:
-            ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
-            self._balance = float(ust_amount['marginBalance']) - self.pos_value()
+        if self.is_futures:
+            if update:
+                ust_amount = [a for a in self.account_info['assets'] if a['asset'] == self.usd_name][0]
+                self._balance = float(ust_amount['marginBalance']) - self.pos_value()
+        else:
+            self._balance = float(self.account_info['assets'][0]['quoteAsset']['netAsset'])
         
         return self._balance
 
     def pos_amount(self, refresh=False):
         if refresh:
             self._update_account_info()
-        pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
+        if self.is_futures:
+            pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
+            amount = float(pos['positionAmt'])
+        else:
+            amount = float(self.account_info['assets'][0]['baseAsset']['netAsset'])
         
-        return float(pos['positionAmt'])
+        return amount
 
     def pos_value(self, price=None, refresh=False) -> float:
         if price is None:
             price = self.get_price()
 
-        # Refresh once is enough
-        earn = (price - self.entry_price(refresh)) * self.pos_amount()
-        value = self.entry_value() + earn
+        if self.is_futures:
+            # Refresh once is enough
+            earn = (price - self.entry_price(refresh)) * self.pos_amount()
+            value = self.entry_value() + earn
+        else:
+            value = price * self.pos_amount()
+
         return value
 
     def entry_value(self, refresh=False) -> float:
+        assert(not self.is_futures)
         # Position value when opening
         # Refresh once is enough
         pos_amount = self.pos_amount()
-        pos_amount = pos_amount if pos_amount >= 0 else -pos_amount
-        return self.entry_price(refresh) * pos_amount / self.leverage
+        if self.is_futures:
+            pos_amount = pos_amount if pos_amount >= 0 else -pos_amount
+            value = self.entry_price(refresh) * pos_amount / self.leverage
+        else:
+            value = self.entry_price(refresh) * pos_amount
+        
+        return value
 
     def entry_price(self, refresh=False) -> float:
         if refresh:
             self._update_account_info()
-        pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
         
-        return float(pos['entryPrice'])
+        if self.is_futures:
+            pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
+            price = float(pos['entryPrice'])
+        else:
+            price = self.price_last_trade
+        
+        return price
     
     def get_leverage(self, refresh=False) -> int:
         if refresh:
             self._update_account_info()
-        pos = [a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]
-        return int(pos['leverage'])
+        if self.is_futures:
+            leverage = int([a for a in self.account_info['positions'] if a['symbol'] == self.symbol][0]['leverage'])
+        else:
+            leverage = int(self.account_info['assets'][0]['marginRatio'])
+        return leverage
 
     # TODO
     def create_order(self, order: Order) -> Order.State:
@@ -241,6 +275,7 @@ class AdaptorBinance(Adaptor):
             if pos_amount >= self.token_min_pos:
                 # executed_price = self._order_market_wait_finished(side, pos_amount)
                 executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
+                self.price_last_trade = executed_price
                 self._update_account_info()
                 self.balance(update=True)
             else:
@@ -483,6 +518,26 @@ class AdaptorBinance(Adaptor):
     # ------------------------ Client wrapper ------------------------
 
     def _client_call(self, method, **kwargs):
+        
+        def add_p(k, names, values):
+            for i in range(len(names)):
+                k[names[i]] = values[i]
+            return k
+        
+        get_margin_params = {
+            'futures_account': lambda k: ['get_isolated_margin_account', add_p(k, ['symbols'], [self.symbol])],
+            'futures_get_open_orders': lambda k: ['get_open_margin_orders', add_p(k, ['isIsolated'], ['TRUE'])],
+            'get_server_time': lambda k: ['get_server_time', k],
+            'futures_cancel_order': lambda k: ['cancel_margin_order', add_p(k, ['isIsolated'], ['TRUE'])],
+            'futures_change_leverage': lambda k: ['', k],
+            'futures_get_order': lambda k: ['get_margin_order', add_p(k, ['isIsolated'], ['TRUE'])],
+            'futures_orderbook_ticker':lambda k: ['get_orderbook_ticker', k]}
+        
+        if not self.is_futures:
+            assert method in get_margin_params
+            method, kwargs = get_margin_params[method](kwargs)
+
+
         call_cnt = 0
         while True:
             try:

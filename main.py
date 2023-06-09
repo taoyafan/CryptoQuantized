@@ -162,7 +162,8 @@ def real_trade():
 
 
 def simulated_trade():
-    usd_name = 'BUSD'
+    # usd_name = 'BUSD'
+    usd_name = 'TUSD'
     # usd_name = 'USDT'
     # token_name='LUNA2'
     # token_name='1000LUNC'
@@ -196,16 +197,16 @@ def simulated_trade():
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
                 # end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
+                # start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
                 # start_str='2022-10-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                # start_str='2023-05-01 00:00:00 UTC+8', num=300000, is_futures=True)
-                # num=200000, is_futures=True)
+                start_str='2023-03-31 00:00:00 UTC+8', num=100000, is_futures=False)
+                # num=100000, is_futures=True)
                 # start_str='2022-06-19 22:31:00 UTC+8', end_str='2022-06-20 1:00:00 UTC+8', is_futures=True)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
 
     print('Loading data finished')
 
-    fee = 0.0002
+    fee = 0.00001
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=fee, log_en=log_en)
 
