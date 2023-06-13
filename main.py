@@ -21,18 +21,17 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
 
         # For each step
         price = adaptor.get_price()
-        is_trade = False
         new_step = True
         while True:
             state.update()
             # For dynamic price in one step
-            if state.can_buy():
-                if policy.try_to_buy(new_step):
-                    state.update()
+            # if state.can_buy():
+            if policy.try_to_buy(new_step):
+                state.update()
 
-            if state.can_sell():
-                if policy.try_to_sell(new_step):
-                    state.update()
+            # if state.can_sell():
+            if policy.try_to_sell(new_step):
+                state.update()
 
             if adaptor.is_next_step():
                 break
@@ -96,40 +95,45 @@ def final_log(data: Data, policy: Policy, state: AccountState):
 
 
 def real_trade():
-    usd_name = 'BUSD'
-    token_name='LUNA2'
+    usd_name = 'TUSD'
+    token_name='BTC'
+    is_futures=False
     log_en = True
     analyze_en = True
     policy_private_log = True
 
-    k_same_points_delta = 0.9
-    k_other_points_delta = 0
-    k_from_latest_point = 0.6
-    search_to_now = False
-
     # Updata data to latest
-    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, is_futures=True)
-    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en, leverage=2)
+    data = Data(token_name+usd_name, DataType.INTERVAL_1MINUTE, is_futures=is_futures)
+    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en, is_futures=is_futures)
     data.set_client(adaptor.client)
     data.update(end_str="1 minute ago UTC+8")
-    data.replace_data_with_range(num=2000)
+    data.replace_data_with_range(num=100)
     print('Data start with {}, end with {}'.format(data.start_time_str(), data.end_time_str()))
 
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
 
     # Update policy
+    fee = 0.00001
     timestamp = int(data.get_value(DataElements.OPEN_TIME, 0))
-    policy = PolicyBreakThrough(
-        state                = state,
-        time                 = timestamp, 
-        log_en               = log_en, 
-        analyze_en           = analyze_en, 
-        policy_private_log   = policy_private_log,
-        k_same_points_delta  = k_same_points_delta,
+
+    k_same_points_delta = 0
+    k_other_points_delta = 0
+    k_from_latest_point = 0
+    search_to_now = False
+
+    policy = PolicySwing(
+        state,
+        timestamp, 
+        log_en = log_en, 
+        analyze_en = analyze_en, 
+        policy_private_log = policy_private_log,
+
+        k_same_points_delta = k_same_points_delta,
         k_other_points_delta = k_other_points_delta,
-        k_from_latest_point  = k_from_latest_point,
-        search_to_now        = search_to_now
-        )
+        k_from_latest_point = k_from_latest_point,
+        search_to_now = search_to_now,
+        
+        fee = fee)
 
     def update_policy(i):
         policy.update(high = data.get_value(DataElements.HIGH, i),
@@ -147,7 +151,13 @@ def real_trade():
         try:
             if error_occured:
                 error_occured = False
-                adaptor.clear_open_orders()
+                adaptor.reset()
+                if adaptor.pos_amount() > 0:
+                    adaptor._order_market(OrderSide.SELL, adaptor.pos_amount())
+                state.reset()
+                policy.reset()
+
+                print('Clear all open order')
                 time.sleep(30)
                 if data.update(end_str="1 minute ago UTC+8"):
                     update_policy(-1)
@@ -158,6 +168,7 @@ def real_trade():
         except Exception as ex:
             # traceback.print_exc()
             print(ex)
+            print('Return to main, Retry')
             error_occured = True
 
 
@@ -171,6 +182,7 @@ def simulated_trade():
     # token_name='GMT'
     token_name = 'BTC'
     # token_name = 'SOL'
+    is_futures = False
 
     log_en = False
     analyze_en = True
@@ -193,16 +205,16 @@ def simulated_trade():
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # Test
-                # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=True)
-                # start_str="2022/06/30 14:00 UTC+8", is_futures=True)
-                # start_str="2022/03/05 14:00 UTC+8", is_futures=True)
-                # end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                # start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                # start_str='2022-10-19 19:11:00 UTC+8', num=100000, is_futures=True)
-                start_str='2023-03-31 00:00:00 UTC+8', num=100000, is_futures=False)
-                # num=100000, is_futures=True)
-                # start_str='2022-06-19 22:31:00 UTC+8', end_str='2022-06-20 1:00:00 UTC+8', is_futures=True)
-                # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=True)
+                # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=is_futures)
+                # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
+                # start_str="2022/03/05 14:00 UTC+8", is_futures=is_futures)
+                # end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2022-10-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2023-03-31 00:00:00 UTC+8', num=100000, is_futures=is_futures)
+                num=1500, is_futures=is_futures)
+                # start_str='2022-06-19 22:31:00 UTC+8', end_str='2022-06-20 1:00:00 UTC+8', is_futures=is_futures)
+                # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=is_futures)
 
     print('Loading data finished')
 

@@ -60,17 +60,20 @@ class AccountState:
         
         return True
     
+    def reset(self):
+        self.orders = set()
+        self.removed_orders = set()
+        self.balance = self.adaptor.balance()
+        self.pos_amount = self.adaptor.pos_amount()
+        self.pos_value = self.adaptor.pos_value()
+
     def cancel_order(self, order: Order) -> bool:
         assert order in self.orders, "Can not cancel the order which is not recorded"
         canceled = self.adaptor.cancel_order(order)
 
-        if canceled:
-            order.set_state_to(Order.State.CANCELED)
-        else:
+        if canceled == False:
             # Traded happend, can not cancel, update state to next traded
-            state = self.adaptor.update_order(order)
-            if state != order.state:
-                order.set_state_to(state)
+            self.adaptor.update_order(order)
         
         self.removed_orders.add(order)
         return True

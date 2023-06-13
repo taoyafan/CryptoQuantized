@@ -239,7 +239,7 @@ class Data:
                     else:
                         klines.to_csv(self.file_loc, index=False)
                     
-                    self.data = self.data.append(klines)
+                    self.data = pd.concat([self.data, klines])
                     is_updated = True
             else:
                 # end <= start, no need to update

@@ -63,20 +63,21 @@ class DirectionType(Enum):
 class TradeInfo:
     def __init__(self, price: float, direction: DirectionType, side: OrderSide, 
                  reason: str, reduce_only: bool, leverage: int = 1,
-                 can_be_sended: bool = False, lock_time: int = 0):
-        self.price: float = price
+                 can_be_sent: bool = False, lock_time: int = 0):
+        self.price: float             = price
         self.direction: DirectionType = direction
-        self.side: OrderSide = side
-        self.reason: str = reason
-        self.reduce_only: bool = reduce_only
-        self.leverage: float       = leverage
-        self.can_be_sended: bool = can_be_sended
+        self.side: OrderSide          = side
+        self.reason: str              = reason
+        self.reduce_only: bool        = reduce_only
+        self.leverage: float          = leverage
+        self.can_be_sent: bool        = can_be_sent
         
         # Info can be updated
         self.lock_start_time: Optional[int] = None
         self.lock_time: int = lock_time
         
-        self._is_sended: bool = False
+        self._is_sent: bool = False
+        self.client_order_id: Optional[int] = None
 
         self.executed_price: Optional[float] = None
         self.executed_time: Optional[int]    = None
@@ -87,19 +88,20 @@ class TradeInfo:
         self.executed_price = executed_price
         self.executed_time = time
 
-        if not self._is_sended:
-            self._is_sended = True
+        if not self._is_sent:
+            self._is_sent = True
     
-    # TODO call this when sended
-    def sended(self):
-        assert self._is_sended == False, "Can not send twice"
-        self._is_sended = True
+    # TODO call this when sent
+    def sent(self, client_order_id=None):
+        assert self._is_sent == False, "Can not send twice"
+        self._is_sent = True
+        self.client_order_id = client_order_id
 
     def is_executed(self) -> bool:
         return self.executed_price is not None
 
-    def is_sended(self) -> bool:
-        return self._is_sended
+    def is_sent(self) -> bool:
+        return self._is_sent
     
     def set_locked_start_time(self, lock_start_time: int):
         self.lock_start_time = lock_start_time
@@ -128,8 +130,8 @@ class TradeInfo:
             self.side           == the_other.side           and
             self.reason         == the_other.reason         and
             self.reduce_only    == the_other.reduce_only    and
-            self.can_be_sended  == the_other.can_be_sended  and
-            self._is_sended     == the_other._is_sended     and
+            self.can_be_sent    == the_other.can_be_sent    and
+            self._is_sent     == the_other._is_sent     and
             self.executed_price == the_other.executed_price and
             self.locked_until() == the_other.locked_until()
         )
@@ -164,9 +166,9 @@ class Order:
 
     class State(Enum):
         CREATED     = auto()    # Created this order request
-        SENDED      = auto()    # Sended this order to exchange
+        SENT      = auto()    # Sended this order to exchange
         ENTERED     = auto()    # Traded under the enter condition
-        EXIT_SENDED = auto()    # Sended exit condition to exchange
+        EXIT_SENT = auto()    # Sended exit condition to exchange
         EXITED      = auto()    # Traded under the exit condition
         FINISHED    = auto()    # Finished
         CANCELED    = auto()    # Canceled before finished
@@ -180,14 +182,14 @@ class Order:
                  leverage: int = 1,
                  priority: Priority = Priority(2),
                  reduce_only: bool = False, 
-                 can_be_sended: bool = False):
+                 can_be_sent: bool = False):
         """
         params:
             priority: Higher value higher priority
 
             cb_fun: Call back function after traded
 
-            can_be_sended: whether send this order to exchange or hold until price meet the
+            can_be_sent: whether send this order to exchange or hold until price meet the
                 enter condition.
         """
         # Order params
@@ -202,7 +204,7 @@ class Order:
                                       reason        = reason,
                                       reduce_only   = reduce_only,
                                       leverage      = leverage,
-                                      can_be_sended = can_be_sended)
+                                      can_be_sent = can_be_sent)
 
         self.create_time    = create_time
         self.enter_priority = priority
@@ -248,18 +250,22 @@ class Order:
     def has_exit(self) -> bool:
         return self.exits_num() > 0
 
-    def num_exit_need_sended(self) -> int:
-        return sum([int(info.can_be_sended) for info in self.exited_infos])
+    def num_exit_need_sent(self) -> int:
+        return sum([int(info.can_be_sent) for info in self.exited_infos])
 
-    def has_exit_need_sended(self) -> bool:
-        return self.num_exit_need_sended() >= 1
+    def has_exit_need_sent(self) -> bool:
+        return self.num_exit_need_sent() >= 1
+
+    def clear_exit(self):
+        self.exited_infos  = []
+        self.exit_priority = Priority(0)
 
     # Exit can only be reduce only
     def add_exit(self, price: float, 
                  direction: DirectionType, 
                  reason: str,
                  priority: Priority = Priority(2),
-                 can_be_sended: bool = False,
+                 can_be_sent: bool = False,
                  lock_time: int = 0):
 
         self.exited_infos.append(TradeInfo(price         = price,
@@ -267,7 +273,7 @@ class Order:
                                            side          = self.side.the_other(),
                                            reason        = reason,
                                            reduce_only   = True,
-                                           can_be_sended = can_be_sended,
+                                           can_be_sent   = can_be_sent,
                                            lock_time     = lock_time))
         # Lowest exit priority
         if self.exit_priority is None or priority < self.exit_priority:
@@ -296,7 +302,7 @@ class Order:
     def _set_state(self, state: State):
         assert state != Order.State.FINISHED, "Finished will be automatic set"
 
-        assert (state != Order.State.EXIT_SENDED and \
+        assert (state != Order.State.EXIT_SENT and \
                 state != Order.State.EXITED) or \
                self.has_exit(), "Move to exited without exit condition" 
 
@@ -401,6 +407,9 @@ class OptState:
         
         # Temp value
         self.last_reason = ''
+        self.has_added_part = False
+
+    def reset(self):
         self.has_added_part = False
 
     def add_part(self, idx: int, expect_price: float, actual_price: float, reason: str, reduce_only=False):

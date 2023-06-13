@@ -3,11 +3,11 @@ from typing import Optional
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import time
-from enum import Enum
+from enum import Enum, auto
 from utils import milliseconds_to_date
 
 from api_key import API_KEY, SECRET_KEY
-from base_types import OrderSide, DirectionType, Order, DataElements, Recoverable, TradeInfo
+from base_types import OrderSide, DirectionType, Order, DataElements, Recoverable, TradeInfo, DataType
 from data import Data
 
 class Adaptor(ABC):
@@ -16,16 +16,16 @@ class Adaptor(ABC):
     SELL = OrderSide.SELL
 
     token_min_pos_table = {
-        'BTC': 0.001,
-        'GMT': 0.1,
-        'LUNA2': 1,
-        'DOGE': 1,
-        '1000LUNC': 1,
-        'SOL': 1,
+        'BTC': 5,
+        'GMT': 2,
+        'LUNA2': 0,
+        'DOGE': 0,
+        '1000LUNC': 0,
+        'SOL': 0,
     }
 
     token_min_price_precision_table = {
-        'BTC': 1,
+        'BTC': 2,
         'GMT': 4,
         'LUNA2': 4,
         'DOGE': 5,
@@ -42,9 +42,12 @@ class Adaptor(ABC):
         assert token_name in self.token_min_pos_table, 'Not support token'
         self.token_min_pos = self.token_min_pos_table[token_name]
         self.token_min_price_precision = self.token_min_price_precision_table[token_name]
+        self.min_pos = pow(10, -self.token_min_pos)
+
         self.log_en = log_en
 
-        self.order_id = 0
+        self.order_id: int   = 0
+        self.order_info      = None
 
     @abstractmethod
     def create_order(self, order: Order) -> Order.State:
@@ -118,6 +121,11 @@ class Adaptor(ABC):
 
 class AdaptorBinance(Adaptor):
 
+    class OrderType(Enum):
+        LIMIT     = auto()
+        STOP      = auto()
+        MARKET    = auto()
+
     def __init__(self, usd_name, token_name, data:Data, log_en=True, leverage=2, is_futures=True):
         super().__init__(usd_name, token_name, data, log_en)
         proxies = {
@@ -138,7 +146,14 @@ class AdaptorBinance(Adaptor):
         self.balance(refresh_account=False, update=True)    # Update _balance
         self.time_minute = self._get_time_minute()
         self.data = data
+        self.data.set_client(self.client)
         self.price_last_trade = 0
+
+    def reset(self):
+        self.clear_open_orders()
+        self.price_last_trade = 0
+        self.order_id        += 1
+        self.order_info       = None
 
     def clear_open_orders(self):
         open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
@@ -150,7 +165,6 @@ class AdaptorBinance(Adaptor):
             except:
                 # Assume the order is executed
                 pass
-        self._update_account_info()
 
     def total_value(self, refresh=False) -> float:
         if refresh:
@@ -235,49 +249,241 @@ class AdaptorBinance(Adaptor):
             leverage = int(self.account_info['assets'][0]['marginRatio'])
         return leverage
 
-    # TODO
     def create_order(self, order: Order) -> Order.State:
-        raise NotImplementedError(self.__class__.__name__) 
+        return self.update_order(order)
 
-    # TODO
     def update_order(self, order: Order) -> Order.State:
-        raise NotImplementedError(self.__class__.__name__) 
+        state: Order.State = order.state
+        last_state: Order.State = state
 
-    # TODO
+        while True:
+            last_state = state
+            if state == Order.State.CREATED:
+                entered_info = order.entered_info
+                
+                # Whether locked
+                timestamp = self.get_timestamp()
+                if not entered_info.is_locked(timestamp):
+                    self.try_to_trade(entered_info)
+                    
+                    if entered_info.is_executed():
+                        state = Order.State.ENTERED
+                    # Not executed, check whether cna be sent.
+                    elif entered_info.is_sent():
+                        state = Order.State.SENT
+
+            elif state == Order.State.SENT:
+                entered_info = order.entered_info
+                # It will update self.order_info
+                order_info = self._get_order(client_order_id=entered_info.client_order_id)
+
+                if self._is_order_filled(order_info):
+                    time = self._get_order_time(order_info)
+                    assert time
+                    entered_info.executed(self._get_exe_price(order_info), time)
+                    state = Order.State.ENTERED
+
+            elif state == Order.State.ENTERED or state == Order.State.EXIT_SENT:
+                if order.has_exit():
+                    traded      = False
+                    conflict_id = None
+                    sent        = False
+
+                    # TODO Send two order might cause error
+                    # 1. Check sent order first
+                    all_exited_infos = order.exited_infos
+                    
+                    for info in all_exited_infos:
+                        if info.is_sent():
+                            conflict_id = info.client_order_id
+                            order_info = self._get_order(client_order_id=info.client_order_id)
+
+                            if self._is_order_filled(order_info):
+                                time = self._get_order_time(order_info)
+                                assert time
+                                info.executed(self._get_exe_price(order_info), time)
+                                self._update_account_info()
+                                traded = True
+                                break
+                            
+                    # 2. If not traded, check each exit info without send.
+                    timestamp = self.get_timestamp()
+                    if traded == False:
+                        for info in all_exited_infos:
+                            if not info.is_locked(timestamp) and self.try_to_trade(info, False, conflict_id):
+                                traded = True
+                                break
+                                
+
+                    # 3. If not traded, check each exit info can be sent.
+                    if traded == False:
+                        for info in all_exited_infos:
+                            if not info.is_locked(timestamp) and info.is_sent() == False and info.can_be_sent:
+                                
+                                self.try_to_trade(info, True, conflict_id)
+
+                                if info.is_executed():
+                                    # Traded successfully
+                                    traded = True
+                                    break
+                                elif info.is_sent():
+                                    sent = True
+                                    break
+
+                    if traded:
+                        state = Order.State.EXITED
+                    elif sent:
+                        state = Order.State.EXIT_SENT
+                    else:
+                        # No change, Don't change state
+                        pass
+                else:
+                    # Order don't has exits. Do nothing
+                    pass
+
+            else:
+                assert (state == Order.State.FINISHED or
+                        state == Order.State.CANCELED or
+                        state == Order.State.EXITED)
+                break
+
+            # No state changed, break
+            if state == last_state:
+                break
+            else:
+                order.set_state_to(state)
+
+        return state
+
     def cancel_order(self, order: Order) -> bool:
-        raise NotImplementedError(self.__class__.__name__) 
+        canceled = True
+        id_need_cancel = None
 
-    def try_to_trade(self, price: float, direction: DirectionType, 
-                    side: OrderSide, reduce_only: bool) -> Optional[float]:
+        state = order.state
+        
+        # 1. Get the order id need to be canceled
+        if state == Order.State.SENT:
+            id_need_cancel = order.entered_info.client_order_id
+        
+        elif state == Order.State.EXIT_SENT:
+            all_exited_infos = order.exited_infos
+            
+            for info in all_exited_infos:
+                if info.is_sent():
+                    id_need_cancel = info.client_order_id
+                    break
+        
+        # 2. If order_id is not none, cancel this order
+        if id_need_cancel is not None:
+            exe_amount = self._cancel_order(client_order_id=id_need_cancel)
+            
+            # Already exe
+            if exe_amount > 0:
+                canceled = False
+            else:
+                canceled = True
+
+        if canceled:
+            order.set_state_to(Order.State.CANCELED)
+        
+        return canceled
+
+    def try_to_trade(
+            self, 
+            trade_info: TradeInfo, 
+            can_be_sent: bool=True, 
+            conflict_id: Optional[int]=None) -> Optional[float]:
+        
+        price       = trade_info.price
+        direction   = trade_info.direction 
+        side        = trade_info.side
+        
         # Return executed price, or None
         other_side = OrderSide.BUY if side == OrderSide.SELL else OrderSide.SELL
         current_price = self.get_price(other_side)
         executed_price = None
-        if (direction == DirectionType.ABOVE and current_price > price) or (
-            direction == DirectionType.BELLOW and current_price < price
-        ):
-            # Reduce amount
-            reduce_pos_amount = self.pos_amount()
-            reduce_pos_amount = reduce_pos_amount if reduce_pos_amount >= 0 else -reduce_pos_amount
-            
-            if reduce_only == False:
-                leverage = self.leverage
-                balance = self.balance() + self.pos_value()
-                pos_amount = leverage * balance / current_price
-                # pos_amount must be an integer multiple of self.token_min_pos
-                pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
 
+        # 1. Get the order type
+        target_price = price
+        if side == OrderSide.BUY:
+            if direction == DirectionType.ABOVE and current_price <= price:
+                order_type = self.OrderType.STOP
+            elif direction == DirectionType.BELLOW and current_price > price:
+                order_type = self.OrderType.LIMIT
             else:
-                pos_amount = 0
+                target_price = current_price
+                order_type = self.OrderType.MARKET
+        else:
+            # Sell
+            if direction == DirectionType.ABOVE and current_price <= price:
+                order_type = self.OrderType.LIMIT
+            elif direction == DirectionType.BELLOW and current_price > price:
+                order_type = self.OrderType.STOP
+            else:
+                target_price = current_price
+                order_type = self.OrderType.MARKET
+        
+        # 2. Whether send order to server
+        if order_type == self.OrderType.MARKET or (can_be_sent and trade_info.can_be_sent):
+            # Can trade immediately or can be sent to server first
+            can_create_new = True
             
-            pos_amount += reduce_pos_amount
-            
-            if pos_amount >= self.token_min_pos:
-                # executed_price = self._order_market_wait_finished(side, pos_amount)
-                executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
-                self.price_last_trade = executed_price
-                self._update_account_info()
-                self.balance(update=True)
+            # 2.1 Process the conflict order first
+            if conflict_id is not None:
+                conflict_order_info = self._get_order(client_order_id=conflict_id)
+                
+                if not self._is_order_filled(conflict_order_info):
+                    # If it is not filled, cancel it
+                    exe_amout = self._cancel_order(client_order_id=conflict_id)
+                    assert exe_amout == 0
+                else:
+                    # If it is filled, we can not create new.
+                    can_create_new = False
+                
+            # 2.2 Whether can create a new order
+            if can_create_new:
+                # Reduce amount
+                reduce_pos_amount = self.pos_amount()
+                reduce_pos_amount = reduce_pos_amount if reduce_pos_amount >= 0 else -reduce_pos_amount
+                
+                if trade_info.reduce_only == False:
+                    leverage = min(self.leverage, trade_info.leverage)
+                    pos_amount = leverage * self.total_value() / (target_price * 1.001) - self.min_pos
+
+                else:
+                    pos_amount = 0
+                
+                pos_amount += reduce_pos_amount
+                # pos_amount must be an integer multiple of self.token_min_pos
+                pos_amount = round(pos_amount, self.token_min_pos)
+                
+                if pos_amount >= self.min_pos:
+                    # Market
+                    if order_type == self.OrderType.MARKET:
+                        executed_price = self._order_market_wait_finished(side, pos_amount)
+                        # executed_price = self._order_limit_best_price(side, pos_amount, wait_finished=True)
+                        self.price_last_trade = executed_price
+                        self.balance(update=True)
+
+                        exe_time = self._get_order_time(self.order_info)
+                        assert exe_time is not None
+                        trade_info.executed(executed_price, exe_time)
+                    
+                    # Limit
+                    elif order_type == self.OrderType.LIMIT:
+                        order_info = self._order_limit(side, pos_amount, target_price)
+                        assert order_info is not None
+                        trade_info.sent(self.order_id)
+
+                    # STOP
+                    elif order_type == self.OrderType.STOP:
+                        price = target_price * 1.001 if side == OrderSide.BUY else target_price * 0.999
+                        order_info = self._order_stop(side, pos_amount, stopPrice=target_price, price=price)
+                        assert order_info is not None
+                        trade_info.sent(self.order_id)
+
+                else:
+                    executed_price = None
             else:
                 executed_price = None
         else:
@@ -313,8 +519,6 @@ class AdaptorBinance(Adaptor):
 
     # ====================================== internal ======================================
 
-    # ------------------------ Change internal state ------------------------
-
     # Change self.account_info
     # Need to call after buying, selling
     def _update_account_info(self):
@@ -332,23 +536,27 @@ class AdaptorBinance(Adaptor):
         average_price = 0
         cost = 0
         last_close = self.data.get_value(DataElements.CLOSE, -1)
+        tr = self.data.get_value(DataElements.HIGH, -1) - self.data.get_value(DataElements.LOW, -1)
 
         while True:
             # Choose the best price
             orderbook = self._get_orderbook()
-            side_price = float(orderbook['bidPrice']) if side == OrderSide.BUY else float(orderbook['askPrice'])
-            other_side_price = float(orderbook['askPrice']) if side == OrderSide.BUY else float(orderbook['bidPrice'])
+            low_price = float(orderbook['bidPrice'])
+            high_price = float(orderbook['askPrice'])
+            mid_price = (low_price + high_price) / 2
+            abs_rise = abs(mid_price - last_close)
 
-            # delta = last_close - other_side_price
-            # price = side_price + (2 * delta)
-            price = (side_price - last_close) * 0.7 + last_close
+            if side == OrderSide.BUY:
+                price = low_price - max(0.2 * tr, 0.3 * abs_rise)
+            else:
+                price = high_price + max(0.2 * tr, 0.3 * abs_rise)
             price = round(price, self.token_min_price_precision)
 
             # Create limit order with best price
             order = self._order_limit(side, left_quantity, price)
             self._log('Best price is {:.4f}'.format(price))
             if self.log_en:
-                orderbook['time'] = milliseconds_to_date(orderbook['time'])
+                orderbook['time'] = milliseconds_to_date(order['transactTime'])
                 orderbook['last_close'] = last_close
                 print(orderbook)
             
@@ -365,8 +573,8 @@ class AdaptorBinance(Adaptor):
                         break
                     else:
                         # If not fully executed, check the price
-                        if (side == OrderSide.BUY and self.get_price(side) > other_side_price) or (
-                           (side == OrderSide.SELL and self.get_price(side) < other_side_price)
+                        if (side == OrderSide.BUY and self.get_price(side) > high_price) or (
+                           (side == OrderSide.SELL and self.get_price(side) < low_price)
                         ):
                             # Price changed, no need to wait, break 
                             # self._log('Price changed, no need to wait, break')
@@ -408,19 +616,24 @@ class AdaptorBinance(Adaptor):
         order_info = self._order_market(side, quantity)
         if self.log_en:
             orderbook = self._get_orderbook()
-            orderbook['time'] = milliseconds_to_date(orderbook['time'])
             print(orderbook)
 
         while True:
-            if order_info['status'] == 'FILLED':
+            if self._is_order_filled(order_info):
                 break
             else:
                 time.sleep(0.5)
                 order_info = self._get_order(client_order_id = self.order_id)
                 if order_info is None:
                     raise Exception('Order not exist when wait finished after order market')
-
-        return float(order_info['avgPrice'])
+        
+        if self.is_futures:
+            price = order_info['avgPrice']
+            price = float(price)
+        else:
+            price = float(order_info['cummulativeQuoteQty']) / float(order_info['executedQty'])
+        
+        return price
 
     def _get_min_leverage(self) -> int:
         price = self.get_price()
@@ -433,31 +646,97 @@ class AdaptorBinance(Adaptor):
     
     def _get_time_minute(self) -> int:
         return self.get_timestamp() // 60000
+
+    # ------------------------ Utils ------------------------
+
+    def _get_order_time(self, order_info) -> Optional[int]:
+        time = None
+        if order_info:
+            if 'updateTime' in order_info:
+                time = order_info['updateTime']
+            elif 'transactTime' in order_info:
+                time = order_info['transactTime']
+            elif 'transactionTime' in order_info:
+                time = order_info['transactionTime']
         
+        return time
+    
+    def _is_order_filled(self, order_info) -> bool:
+        assert order_info
+        return order_info['status'] == 'FILLED'
+    
+    def _get_exe_price(self, order_info) -> float:
+        assert order_info and self._is_order_filled(order_info)
+
+        if self.is_futures:
+            price = order_info['avgPrice']
+            price = float(price)
+        else:
+            price = float(order_info['cummulativeQuoteQty']) / float(order_info['executedQty'])
+
+        return price
+
 # ------------------------ Post method ------------------------
 
     def _order_limit(self, side:OrderSide, quantity:float, price:float):
         return self._order(
-            symbol = self.symbol, 
+            'futures_create_order' if self.is_futures else 'create_margin_order',
             side = side.value, 
-            type = self.client.FUTURE_ORDER_TYPE_LIMIT, 
+            type = 'LIMIT', 
             quantity = quantity, 
             price = round(price, self.token_min_price_precision), 
             timeInForce = self.client.TIME_IN_FORCE_GTC)
 
     def _order_market(self, side:OrderSide, quantity:float):
         return self._order(
-            symbol = self.symbol, 
+            'futures_create_order' if self.is_futures else 'create_margin_order',
             side = side.value, 
-            type = self.client.FUTURE_ORDER_TYPE_MARKET, 
+            type = 'MARKET', 
             quantity = quantity)
+    
+    def _order_stop(self, side:OrderSide, quantity:float, stopPrice:float, price:float):
+        o_type = self.client.FUTURE_ORDER_TYPE_STOP if self.is_futures else\
+                    self.client.ORDER_TYPE_STOP_LOSS_LIMIT
 
-    def _order(self, **kwargs):
+        return self._order(
+            'futures_create_order' if self.is_futures else 'create_margin_order',
+            side = side.value, 
+            type = o_type, 
+            quantity = quantity,
+            stopPrice = round(stopPrice, self.token_min_price_precision),
+            price = round(price, self.token_min_price_precision),
+            timeInForce = self.client.TIME_IN_FORCE_GTC)
+
+    def _order_oco(self, side:OrderSide, quantity:float, price:float, stopPrice:float, stopLimitPrice:float):
+        assert not self.is_futures, 'Not support futures'
+
+        return self._order(
+            'create_margin_oco_order',
+            side = side.value, 
+            quantity = quantity,
+            price = round(price, self.token_min_price_precision),
+            stopPrice = round(stopPrice, self.token_min_price_precision),
+            stopLimitPrice = round(stopLimitPrice, self.token_min_price_precision),
+            stopLimitTimeInForce = self.client.TIME_IN_FORCE_GTC)
+
+    def _order(self, method, **kwargs):
         while True:
             try:
+                kwargs['symbol'] = self.symbol
+                
                 self.order_id += 1
-                kwargs['newClientOrderId'] = self.order_id
-                order_info = self.client.futures_create_order(**kwargs)
+                if 'oco' in method:
+                    kwargs['listClientOrderId'] = self.order_id    
+                else:
+                    kwargs['newClientOrderId'] = self.order_id
+
+                if not self.is_futures:
+                    kwargs['isIsolated'] = 'TRUE'
+                    kwargs['sideEffectType'] = 'MARGIN_BUY' if kwargs['side'] == 'BUY' else 'AUTO_REPAY'
+
+                order_info = getattr(self.client, method)(**kwargs)
+                self.order_info = order_info
+                self._update_account_info()
                 break
             except KeyboardInterrupt as ex:
                 raise ex
@@ -478,27 +757,51 @@ class AdaptorBinance(Adaptor):
                 
         return order_info
 
-    def _cancel_order(self, order_id) -> float:
+    def _cancel_order(self, order_id = None, client_order_id = None) -> float:
+        assert order_id or client_order_id
+
         # Return order executed amount
-        order_info = self._client_call('futures_cancel_order', symbol=self.symbol, orderId=order_id)
+        order_info = self._client_call(
+            'futures_cancel_order', 
+            symbol            = self.symbol, 
+            orderId           = order_id, 
+            origClientOrderId = client_order_id)
+        
+        # Update order info
+        if client_order_id == self.order_id:
+            self.order_info = order_info
+
+        self._update_account_info()
+
         return float(order_info['executedQty'])
 
     def _set_leverage(self, leverage: Optional[int]=None):
+        assert self.is_futures, 'Only support futures'
+
         if leverage is None:
             leverage = self._get_min_leverage()
+        
         self._client_call('futures_change_leverage', symbol=self.symbol, leverage=leverage)
         self._update_account_info()
 
     # ------------------------ Get method ------------------------
     
-    def _get_order(self, order_id = None, client_order_id = None):
+    def _get_order(self, order_id = None, client_order_id = None, is_oco = False):
         assert order_id or client_order_id
+        assert not self.is_futures or is_oco == False, 'oco not support for futures'
+        # TODO OCO support
         try:
             order_info = self._client_call(
                 'futures_get_order', 
                 symbol = self.symbol, 
                 orderId = order_id, 
                 origClientOrderId = client_order_id)
+            
+            # Update order info
+            if client_order_id == self.order_id:
+                self.order_info = order_info
+
+            self._update_account_info()
         except KeyboardInterrupt as ex:
             raise ex
         except BinanceAPIException:
@@ -593,13 +896,13 @@ class AdaptorSimulator(Adaptor):
         while True:
             last_state = state
 
-            if state == Order.State.CREATED or state == Order.State.SENDED:
+            if state == Order.State.CREATED or state == Order.State.SENT:
                 if not entered_info.is_locked(self.get_timestamp()):
-                    # Can not send, Only move to entered when trade successfully
+                    # Can not be sent, Only move to entered when trade successfully
                     if (self.try_to_trade(entered_info) is not None):
                         state = Order.State.ENTERED
 
-            elif state == Order.State.ENTERED or state == Order.State.EXIT_SENDED:
+            elif state == Order.State.ENTERED or state == Order.State.EXIT_SENT:
                 if order.has_exit():
                     all_exited_infos = order.exited_infos
                     traded = False
@@ -629,6 +932,7 @@ class AdaptorSimulator(Adaptor):
 
     def cancel_order(self, order: Order) -> bool:
         assert order.not_entered()
+        order.set_state_to(Order.State.CANCELED)
         return True
 
     def try_to_trade(self, trade_info: TradeInfo) -> Optional[float]:
@@ -729,3 +1033,25 @@ class AdaptorSimulator(Adaptor):
             trade_price = None
 
         return trade_price
+
+
+if __name__ == "__main__":
+    usd_name = 'TUSD'
+    token_name = 'BTC'
+    is_futures = False
+    symbol = token_name+usd_name
+    data = Data(symbol, DataType.INTERVAL_1MINUTE, num=100, is_futures=is_futures)
+    adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=True, is_futures=is_futures)
+    data.update(end_str="1 minute ago UTC+8")
+    open_time = adaptor.get_timestamp()
+    price = adaptor.get_price(adaptor.BUY)
+    order = Order(OrderSide.BUY, 0, Order.ABOVE, 'Long', 
+                        open_time, leverage=5, can_be_sent=True, reduce_only=False)
+
+    order.add_exit(price+10, Order.ABOVE, "Long exit")
+    order.add_exit(price-100, Order.BELLOW, "Long stop", can_be_sent=True)
+
+    print(order.state)
+    adaptor.update_order(order=order)
+    # adaptor.cancel_order(order=order)
+    print(order.state)
