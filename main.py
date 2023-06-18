@@ -23,16 +23,12 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
         price = adaptor.get_price()
         new_step = True
         while True:
-            state.update()
             # For dynamic price in one step
-            # if state.can_buy():
-            if policy.try_to_buy(new_step):
-                state.update()
-
-            # if state.can_sell():
-            if policy.try_to_sell(new_step):
-                state.update()
-
+            policy.try_to_buy(new_step)
+            policy.try_to_sell(new_step)
+            
+            state.update()
+            
             if adaptor.is_next_step():
                 break
 
@@ -199,7 +195,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "+-0_5Atr10"
+    exp_name = "+0_5-3atr10_bias0_1"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -208,12 +204,11 @@ def simulated_trade():
                 # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=is_futures)
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=is_futures)
-                # end_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
-                # start_str='2022-07-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
-                # start_str='2022-10-19 19:11:00 UTC+8', num=100000, is_futures=is_futures)
-                # start_str='2023-03-31 00:00:00 UTC+8', num=100000, is_futures=is_futures)
-                num=1500, is_futures=is_futures)
-                # start_str='2022-06-19 22:31:00 UTC+8', end_str='2022-06-20 1:00:00 UTC+8', is_futures=is_futures)
+                # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
+                start_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
+                # num=100000, is_futures=is_futures)
+                # start_str='2023-06-14 11:24:00 UTC+8', end_str='2023-06-15 00:35:00 UTC+8', is_futures=is_futures)
+                # start_str='2023-06-13 20:10:00 UTC+8', end_str='2023-06-13 20:34:00 UTC+8', is_futures=is_futures)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=is_futures)
 
     print('Loading data finished')
@@ -271,6 +266,10 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
+    # TODO 
+    # Print create order
+    # send exit order too, using OCO order?
+    # Not catch assert error or add assert failed message
     real = False
     if real:
         # Log to file

@@ -351,16 +351,22 @@ class PolicyBreakThrough(Policy):
         return
 
     def _get_params_buy(self, new_step=False) -> Order:
-        idx = self.front_threshold + 1
-        fake_top = np.max(self.highs[idx:]) if len(self.highs) > idx else 0
-        return Order(OrderSide.BUY, max(self.last_top, fake_top), Order.ABOVE, 'Default',  # type: ignore
+        return Order(OrderSide.BUY, self._get_latest_top(), Order.ABOVE, 'Default',  # type: ignore
             self.account_state.get_timestamp())
     
     def _get_params_sell(self, new_step=False) -> Order:
-        idx = self.front_threshold + 1
-        fake_bottom = np.min(self.lows[idx:]) if len(self.lows) > idx else float('inf')
-        return Order(OrderSide.SELL, min(self.last_bottom, fake_bottom), Order.BELLOW, 'Default', # type: ignore
+        return Order(OrderSide.SELL, self._get_latest_bottom(), Order.BELLOW, 'Default', # type: ignore
             self.account_state.get_timestamp())
+
+    def _get_latest_top(self):
+        idx = self.front_threshold + 1
+        fake_top: float = np.max(self.highs[idx:]) if len(self.highs) > idx else 0 # type: ignore
+        return max(self.last_top, fake_top)
+    
+    def _get_latest_bottom(self):
+        idx = self.front_threshold + 1
+        fake_bottom: float = np.min(self.lows[idx:]) if len(self.lows) > idx else float('inf') # type: ignore
+        return min(self.last_bottom, fake_bottom)
 
     def save(self, file_loc: str, symbol: str, start, end):
         if self.analyze_en:
@@ -412,7 +418,7 @@ class PolicyBreakThrough(Policy):
                     self.tops_confirm.add(timestamp, self.last_top)
             
             if found_bottom:
-                self.last_bottom = self.lows[idx]
+                self.last_bottom: float = self.lows[idx] # type: ignore
                 self.delta_time_bottom.set(self.last_checked_time - self.last_bottom_time.value)
                 self.last_bottom_time.set(self.last_checked_time)
                 if self.analyze_en:
@@ -504,7 +510,7 @@ class PolicySwing(PolicyBreakThrough):
         self.buy_order_valid_until = np.inf
         self.atr = MAs([10, 60])
         self.aer = MAs([10, 60])
-        # self.ma = MAs([10, 300])
+        self.ma = MAs([3])
         self.fee = kwargs['fee']
         self.last_ma300 = 0
 
@@ -522,12 +528,12 @@ class PolicySwing(PolicyBreakThrough):
     def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
         self.atr.update(high - low)
         self.aer.update(close - self.last_close)
-        # self.ma.update(close)
+        self.ma.update(close)
 
-        last_top_time_temp    = self.last_top_time.value
-        last_bottom_time_temp = self.last_bottom_time.value
-        self.last_time        = timestamp
-        self.last_close       = close
+        last_top_temp    = self.last_top
+        last_bottom_temp = self.last_bottom
+        self.last_time   = timestamp
+        self.last_close  = close
 
         super().update(high, low, close, volume, timestamp)
 
@@ -552,10 +558,10 @@ class PolicySwing(PolicyBreakThrough):
             self.can_buy = False
         
         # Clear break up / down if top or bottom changed.
-        if last_top_time_temp != self.last_top_time.value:
+        if last_top_temp != self.last_top:
             self.can_buy = True
             self.new_top = True
-        if last_bottom_time_temp != self.last_bottom_time.value:
+        if last_bottom_temp != self.last_bottom:
             self.bottom_ordered = False
 
     def _get_params_buy(self, new_step=False) -> Optional[Order]:
@@ -573,13 +579,17 @@ class PolicySwing(PolicyBreakThrough):
             atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
             atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
             aer10 = self.aer.get_ma(10).mean / self.last_close + 0.000001
-            aer60 = self.aer.get_ma(60).mean / self.last_close + 0.000001
+            # aer60 = self.aer.get_ma(60).mean / self.last_close + 0.000001
             
-            buy_price = self.last_top
-            # sell_atr = 1 - (atr10 - 0.000260) / (0.00228 - 0.000260) * 0.5
+            ma3 = (self.ma.get_ma(3).mean / self.last_close - 1) / atr10
+
+            top = self._get_latest_top()
+            target_tr = atr10
+
+            buy_price = top + 0.1
             sell_atr = 0.5
-            sell_price = buy_price * (1 + sell_atr * atr10)
-            stop_price = buy_price * (1 - 3 * atr10)
+            sell_price = buy_price * (1 + sell_atr * target_tr)
+            stop_price = buy_price * (1 - 6 * sell_atr * target_tr)
             p = 0.6
             possible_loss = buy_price - stop_price
             
@@ -587,34 +597,33 @@ class PolicySwing(PolicyBreakThrough):
             rl = possible_loss / buy_price + 2 * self.fee
             # leverage = p / rl - (1 - p) / rw
             # leverage = min(5, int(leverage // 1))
-            leverage = 5
+            leverage = 1
 
-            # dtop = (self.last_top - self.last_close) / self.last_close / atr60
-
-            # ma300 = self.ma.get_ma(300).mean
-            # ma_pos_pass = ma300 < self.last_bottom
-
-            if rw > 0 and rl > 0 and leverage > 0: # and dtop < 2  and atr10 / atr60 < 1.5
+            if rw > 0 and rl > 0 and leverage > 0 and ma3 < -0.22: #
             # if leverage > 0:
                 open_time = self.account_state.get_timestamp()
                 order = None
                 
+                # There is buy order flying
                 if (self.buy_order and 
-                    self.buy_order.not_entered() and 
-                    self.buy_order.entered_info.price == self.last_top
-                ):
-                    # Same enter info, only change exit info.
-                    order = self.buy_order
-                    order.clear_exit()
+                    self.buy_order.is_alive()
+                ):  
+                    if self.buy_order.not_entered():
+                        # Same enter info, only change exit info.
+                        order = self.buy_order
+                        order.clear_exit()
+
                 else:
-                    order = Order(OrderSide.BUY, self.last_top, Order.ABOVE, 'Long', 
+                    # No flying order, create new
+                    order = Order(OrderSide.BUY, buy_price, Order.ABOVE, 'Long', 
                         open_time, leverage=leverage, can_be_sent=True)
                     new_order = order
-                    
-                # To make sure not move the order to finished
-                # order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=100*60000)
-                order.add_exit(stop_price, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000)
-                order.add_exit(sell_price, Order.ABOVE, "Long exit")
+
+                if order:
+                    # To make sure not move the order to finished
+                    # order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=100*60000)
+                    order.add_exit(stop_price, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000)
+                    order.add_exit(sell_price, Order.ABOVE, "Long exit")
                 
 
                 open_time = self.account_state.get_timestamp()
@@ -631,95 +640,6 @@ class PolicySwing(PolicyBreakThrough):
     
     def _get_params_sell(self, new_step=False) -> Optional[Order]:
         order = None
-        return order
-
-    @property
-    def buy_reasons(self) -> Set[str]:
-        return {'Long', 'Short exit'}
-
-    @property
-    def sell_reasons(self) -> Set[str]:
-        return {'Short', 'Long exit', 'Long stop', 'Long timeout'}
-
-
-class PolicyBreakWithMa300Low(PolicyBreakThrough):
-
-    def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
-        super().__init__(state, time, log_en, analyze_en, policy_private_log, **kwargs)
-        self.can_buy = True
-        self.bottom_ordered = True
-        self.last_time = time
-        self.last_close = 0.0
-        self.sell_order_valid_until = np.inf
-        self.buy_order_valid_until = np.inf
-        self.atr = MAs([10])
-        self.ma = MAs([300])
-
-    def update(self, high: float, low: float, close: float, volume: float, timestamp: int):
-        last_top_time_temp    = self.last_top_time.value
-        last_bottom_time_temp = self.last_bottom_time.value
-        self.last_time        = timestamp
-        self.last_close       = close
-
-        super().update(high, low, close, volume, timestamp)
-
-        
-        self.atr.update(high-low)
-        self.ma.update(close)
-
-        # Whether cancel last order
-        if (timestamp >= self.sell_order_valid_until and 
-            self.sell_order and 
-            self.sell_order.not_entered()
-        ):
-            self.account_state.cancel_order(self.sell_order)
-            self.sell_order_valid_until = np.inf
-        
-        if (timestamp >= self.buy_order_valid_until and 
-            self.buy_order and 
-            self.buy_order.not_entered()
-        ):
-            self.account_state.cancel_order(self.buy_order)
-            self.buy_order_valid_until = np.inf
-        
-        # Clear break up / down if top or bottom changed.
-        if last_top_time_temp != self.last_top_time.value:
-            self.can_buy = False
-        if last_bottom_time_temp != self.last_bottom_time.value:
-            self.bottom_ordered = False
-
-    def _get_params_buy(self, new_step=False) -> Optional[Order]:
-        order = None
-        if (not self.can_buy            and
-            self.highs[-1] >= self.last_top and
-            new_step
-        ):
-            # Each top only order once
-            self.can_buy = True
-
-            if self.ma.get_ma(300).valid() and self.atr.get_ma(10).mean > 0:
-                atr10 = self.atr.get_ma(10).mean / self.last_close
-                ma300 = (self.ma.get_ma(300).mean - self.last_close) / self.last_close / atr10
-
-                if ma300 < -4:
-                    open_time = self.account_state.get_timestamp()
-                    order = Order(OrderSide.BUY, 0, Order.ABOVE, 'Long', 
-                        open_time, reduce_only=False)
-
-        return order
-    
-    def _get_params_sell(self, new_step=False) -> Optional[Order]:
-        order = None
-        if (new_step and 
-            (not self.bottom_ordered) and 
-            (self.lows[-1] < self.last_bottom)
-        ):
-            self.bottom_ordered = True
-
-            if (self.buy_order is not None) and (self.account_state.pos_amount > 0):
-                order = Order(OrderSide.SELL, 0, Order.ABOVE, 'Short', 
-                    self.account_state.get_timestamp(), reduce_only=True)
-        
         return order
 
     @property

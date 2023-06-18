@@ -334,11 +334,11 @@ class SavedInfo():
                self.tops_confirm, self.bottoms_confirm
 
 
-def read_data(symbol, exp_name, start, end) -> SavedInfo:
+def read_data(symbol, exp_name, start, end, is_futures) -> SavedInfo:
     start_str = milliseconds_to_date(start) + ' UTC+8'
     end_str = milliseconds_to_date(end + 1) + ' UTC+8'
 
-    data = Data(symbol, DataType.INTERVAL_1MINUTE, start_str=start_str, end_str=end_str, is_futures=True)
+    data = Data(symbol, DataType.INTERVAL_1MINUTE, start_str=start_str, end_str=end_str, is_futures=is_futures)
     # print(data.start_time())
     # print(data.end_time())
 
@@ -374,8 +374,8 @@ def read_data(symbol, exp_name, start, end) -> SavedInfo:
     return SavedInfo(data, buy_points, sell_points, tops, bottoms, earn_points, tops_confirm, bottoms_confirm)
 
 
-def get_combined_data(symbol, exp_name, start, end) -> DataFrame:
-    info = read_data(symbol, exp_name, start, end)
+def get_combined_data(symbol, exp_name, start, end, is_futures, confirm_step=30) -> DataFrame:
+    info = read_data(symbol, exp_name, start, end, is_futures)
     df = info.data.data
     df['TR'] = df[['high', 'low']].apply(lambda x: x['high'] - x['low'], axis=1)
     top_idx = -1
@@ -399,10 +399,10 @@ def get_combined_data(symbol, exp_name, start, end) -> DataFrame:
         open_time = x['open_time']
 
         # Update top_idx and bottom_idx
-        if top_idx + 1 < len(top_time) and open_time >= int(top_time[top_idx + 1]) + 30*60000:
+        if top_idx + 1 < len(top_time) and open_time >= int(top_time[top_idx + 1]) + confirm_step*60000:
             top_idx += 1
 
-        if bottom_idx + 1 < len(bottom_time) and open_time >= int(bottom_time[bottom_idx + 1]) + 30*60000:
+        if bottom_idx + 1 < len(bottom_time) and open_time >= int(bottom_time[bottom_idx + 1]) + confirm_step*60000:
             bottom_idx += 1
         
         # Get last top and bottom

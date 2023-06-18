@@ -51,6 +51,10 @@ class AccountState:
         assert order not in self.orders, "Can not create the order which is already recorded"
         order.add_canceled_call_back(self.cancel_order)
 
+        if self.log_en:
+            enter_info = order.entered_info
+            print(f"{self.get_time_str()}: Create order: {enter_info.reason} expect price: {enter_info.price:.4f}")
+
         self.adaptor.create_order(order)  
         if order.state == Order.State.FINISHED:
             # Order executed immediately
