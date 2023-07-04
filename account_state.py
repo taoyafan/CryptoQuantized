@@ -51,11 +51,12 @@ class AccountState:
         assert order not in self.orders, "Can not create the order which is already recorded"
         order.add_canceled_call_back(self.cancel_order)
 
+        self.adaptor.create_order(order)  
+
         if self.log_en:
             enter_info = order.entered_info
             print(f"{self.get_time_str()}: Create order: {enter_info.reason} expect price: {enter_info.price:.4f}")
 
-        self.adaptor.create_order(order)  
         if order.state == Order.State.FINISHED:
             # Order executed immediately
             pass
@@ -73,7 +74,12 @@ class AccountState:
 
     def cancel_order(self, order: Order) -> bool:
         assert order in self.orders, "Can not cancel the order which is not recorded"
+
         canceled = self.adaptor.cancel_order(order)
+        
+        if self.log_en:
+            enter_info = order.entered_info
+            print(f"{self.get_time_str()}: Cancel order: {enter_info.reason} expect price: {enter_info.price:.4f}")
 
         if canceled == False:
             # Traded happend, can not cancel, update state to next traded

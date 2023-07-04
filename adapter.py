@@ -135,6 +135,7 @@ class AdaptorBinance(Adaptor):
         self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20}) # type: ignore
         self.is_futures = is_futures
         self._update_account_info()
+        self.enable_oco = True
         
         if self.is_futures:
             if self.get_leverage() <= leverage:
@@ -216,7 +217,7 @@ class AdaptorBinance(Adaptor):
         return value
 
     def entry_value(self, refresh=False) -> float:
-        assert(not self.is_futures)
+        assert (not self.is_futures), 'entry_value can not used to futures'
         # Position value when opening
         # Refresh once is enough
         pos_amount = self.pos_amount()
@@ -275,18 +276,18 @@ class AdaptorBinance(Adaptor):
             elif state == Order.State.SENT:
                 entered_info = order.entered_info
                 # It will update self.order_info
-                order_info = self._get_order(client_order_id=entered_info.client_order_id)
+                order_info = self._get_order(order_id=entered_info.order_id)
 
                 if self._is_order_filled(order_info):
                     time = self._get_order_time(order_info)
-                    assert time
+                    assert time, 'time is None'
                     entered_info.executed(self._get_exe_price(order_info), time)
                     state = Order.State.ENTERED
 
             elif state == Order.State.ENTERED or state == Order.State.EXIT_SENT:
                 if order.has_exit():
                     traded      = False
-                    conflict_id = None
+                    sent_info   = None
                     sent        = False
 
                     # TODO Send two order might cause error
@@ -295,17 +296,19 @@ class AdaptorBinance(Adaptor):
                     
                     for info in all_exited_infos:
                         if info.is_sent():
-                            conflict_id = info.client_order_id
-                            order_info = self._get_order(client_order_id=info.client_order_id)
+                            sent_info = info
+                            order_info = self._get_order(order_id=info.order_id)
 
                             if self._is_order_filled(order_info):
                                 time = self._get_order_time(order_info)
-                                assert time
+                                assert time, 'time is None'
                                 info.executed(self._get_exe_price(order_info), time)
                                 self._update_account_info()
                                 traded = True
                                 break
                             
+                    conflict_id = sent_info.order_id if sent_info else None
+
                     # 2. If not traded, check each exit info without send.
                     timestamp = self.get_timestamp()
                     if traded == False:
@@ -315,20 +318,42 @@ class AdaptorBinance(Adaptor):
                                 break
                                 
 
-                    # 3. If not traded, check each exit info can be sent.
+                    # 3. If not traded, check each exit info can be sent, send the info with min price delta.
                     if traded == False:
+                        
+                        # Find the info closest to the price
+                        price = self.get_price()
+                        best_price_delta = float('inf')
+                        best_info = None
+                        
                         for info in all_exited_infos:
                             if not info.is_locked(timestamp) and info.is_sent() == False and info.can_be_sent:
-                                
-                                self.try_to_trade(info, True, conflict_id)
+                                delta = abs(price - info.price)
+                                if delta < best_price_delta:
+                                    best_price_delta = delta
+                                    best_info = info
 
-                                if info.is_executed():
-                                    # Traded successfully
-                                    traded = True
-                                    break
-                                elif info.is_sent():
-                                    sent = True
-                                    break
+                        # If there is a sent info, calculate whether replace to this one.
+                        if sent_info:
+                            sent_delta = abs(price - sent_info.price)
+                            
+                            # If new order is not good enough than sent, not sent this.
+                            if best_price_delta > sent_delta * 2 / 3:
+                                best_info = None
+                                best_price_delta = float('inf')
+
+                        # If need to send a new order info     
+                        if best_info:
+                            self.try_to_trade(best_info, True, conflict_id)
+
+                            if best_info.is_executed():
+                                # Traded successfully
+                                traded = True
+                            elif best_info.is_sent():
+                                sent = True
+                    
+                            if (traded or sent) and sent_info:
+                                sent_info._is_sent = False
 
                     if traded:
                         state = Order.State.EXITED
@@ -344,7 +369,7 @@ class AdaptorBinance(Adaptor):
             else:
                 assert (state == Order.State.FINISHED or
                         state == Order.State.CANCELED or
-                        state == Order.State.EXITED)
+                        state == Order.State.EXITED), 'State error'
                 break
 
             # No state changed, break
@@ -363,19 +388,19 @@ class AdaptorBinance(Adaptor):
         
         # 1. Get the order id need to be canceled
         if state == Order.State.SENT:
-            id_need_cancel = order.entered_info.client_order_id
+            id_need_cancel = order.entered_info.order_id
         
         elif state == Order.State.EXIT_SENT:
             all_exited_infos = order.exited_infos
             
             for info in all_exited_infos:
                 if info.is_sent():
-                    id_need_cancel = info.client_order_id
+                    id_need_cancel = info.order_id
                     break
         
         # 2. If order_id is not none, cancel this order
         if id_need_cancel is not None:
-            exe_amount = self._cancel_order(client_order_id=id_need_cancel)
+            exe_amount = self._cancel_order(order_id=id_need_cancel)
             
             # Already exe
             if exe_amount > 0:
@@ -430,12 +455,12 @@ class AdaptorBinance(Adaptor):
             
             # 2.1 Process the conflict order first
             if conflict_id is not None:
-                conflict_order_info = self._get_order(client_order_id=conflict_id)
+                conflict_order_info = self._get_order(order_id=conflict_id)
                 
                 if not self._is_order_filled(conflict_order_info):
                     # If it is not filled, cancel it
-                    exe_amout = self._cancel_order(client_order_id=conflict_id)
-                    assert exe_amout == 0
+                    exe_amout = self._cancel_order(order_id=conflict_id)
+                    assert exe_amout == 0, 'Cancel failed'
                 else:
                     # If it is filled, we can not create new.
                     can_create_new = False
@@ -466,21 +491,21 @@ class AdaptorBinance(Adaptor):
                         self.balance(update=True)
 
                         exe_time = self._get_order_time(self.order_info)
-                        assert exe_time is not None
+                        assert exe_time is not None, 'exe_time is None'
                         trade_info.executed(executed_price, exe_time)
                     
                     # Limit
                     elif order_type == self.OrderType.LIMIT:
                         order_info = self._order_limit(side, pos_amount, target_price)
-                        assert order_info is not None
-                        trade_info.sent(self.order_id)
+                        assert order_info is not None, 'Order info is None when limit'
+                        trade_info.sent(order_info['orderId'])
 
                     # STOP
                     elif order_type == self.OrderType.STOP:
-                        price = target_price * 1.001 if side == OrderSide.BUY else target_price * 0.999
+                        price = target_price * 1.0001 if side == OrderSide.BUY else target_price * 0.999
                         order_info = self._order_stop(side, pos_amount, stopPrice=target_price, price=price)
-                        assert order_info is not None
-                        trade_info.sent(self.order_id)
+                        assert order_info is not None, 'Order info is None when stop'
+                        trade_info.sent(order_info['orderId'])
 
                 else:
                     executed_price = None
@@ -662,11 +687,11 @@ class AdaptorBinance(Adaptor):
         return time
     
     def _is_order_filled(self, order_info) -> bool:
-        assert order_info
+        assert order_info, 'Order info is None when check is order filled'
         return order_info['status'] == 'FILLED'
     
     def _get_exe_price(self, order_info) -> float:
-        assert order_info and self._is_order_filled(order_info)
+        assert order_info and self._is_order_filled(order_info), 'get exe price failed'
 
         if self.is_futures:
             price = order_info['avgPrice']
@@ -737,6 +762,10 @@ class AdaptorBinance(Adaptor):
                 order_info = getattr(self.client, method)(**kwargs)
                 self.order_info = order_info
                 self._update_account_info()
+                
+                price = kwargs['stopPrice'] if 'stopPrice' in kwargs else kwargs['price'] if 'price' in kwargs else 'None'
+                self._log(f"{self.get_time_str()}: --- Send order: {kwargs['side']} {kwargs['type']}, price: {price}")
+
                 break
             except KeyboardInterrupt as ex:
                 raise ex
@@ -758,7 +787,7 @@ class AdaptorBinance(Adaptor):
         return order_info
 
     def _cancel_order(self, order_id = None, client_order_id = None) -> float:
-        assert order_id or client_order_id
+        assert order_id or client_order_id, 'No order id'
 
         # Return order executed amount
         order_info = self._client_call(
@@ -787,7 +816,7 @@ class AdaptorBinance(Adaptor):
     # ------------------------ Get method ------------------------
     
     def _get_order(self, order_id = None, client_order_id = None, is_oco = False):
-        assert order_id or client_order_id
+        assert order_id or client_order_id, 'Order id is None'
         assert not self.is_futures or is_oco == False, 'oco not support for futures'
         # TODO OCO support
         try:
@@ -837,7 +866,7 @@ class AdaptorBinance(Adaptor):
             'futures_orderbook_ticker':lambda k: ['get_orderbook_ticker', k]}
         
         if not self.is_futures:
-            assert method in get_margin_params
+            assert method in get_margin_params, 'method not exist'
             method, kwargs = get_margin_params[method](kwargs)
 
 
@@ -919,7 +948,7 @@ class AdaptorSimulator(Adaptor):
             else:
                 assert (state == Order.State.FINISHED or
                         state == Order.State.CANCELED or
-                        state == Order.State.EXITED)
+                        state == Order.State.EXITED), 'State not correct'
                 break
 
             # No state changed, break
@@ -931,7 +960,7 @@ class AdaptorSimulator(Adaptor):
         return state
 
     def cancel_order(self, order: Order) -> bool:
-        assert order.not_entered()
+        assert order.not_entered(), 'Can not cancel due to order is entered'
         order.set_state_to(Order.State.CANCELED)
         return True
 

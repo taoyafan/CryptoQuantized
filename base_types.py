@@ -77,7 +77,7 @@ class TradeInfo:
         self.lock_time: int = lock_time
         
         self._is_sent: bool = False
-        self.client_order_id: Optional[int] = None
+        self.order_id: Optional[int] = None
 
         self.executed_price: Optional[float] = None
         self.executed_time: Optional[int]    = None
@@ -92,10 +92,12 @@ class TradeInfo:
             self._is_sent = True
     
     # TODO call this when sent
-    def sent(self, client_order_id=None):
+    def sent(self, order_id=None):
         assert self._is_sent == False, "Can not send twice"
+        assert order_id, "Order ID can not be None"
+        
         self._is_sent = True
-        self.client_order_id = client_order_id
+        self.order_id = order_id
 
     def is_executed(self) -> bool:
         return self.executed_price is not None

@@ -84,7 +84,8 @@ def heatmap_font(pd_data, target, k=-1):
     corrmat = pd_data.corr()
     f, ax = plt.subplots(figsize=(20, 16))
     cols = corrmat.nlargest(k, target)[target].index
-    cm = np.corrcoef(pd_data[cols].values.T)
+    # cm = np.corrcoef(pd_data[cols].values.T)
+    cm = pd_data[cols].corr(method='spearman')
     sns.set(font_scale=1.25) # type: ignore
     hm = sns.heatmap(cm,
                      cbar=True,

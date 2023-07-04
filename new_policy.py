@@ -510,7 +510,7 @@ class PolicySwing(PolicyBreakThrough):
         self.buy_order_valid_until = np.inf
         self.atr = MAs([10, 60])
         self.aer = MAs([10, 60])
-        self.ma = MAs([3])
+        self.ma = MAs([3, 10, 60])
         self.fee = kwargs['fee']
         self.last_ma300 = 0
 
@@ -577,19 +577,30 @@ class PolicySwing(PolicyBreakThrough):
         ):
 
             atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
-            atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
-            aer10 = self.aer.get_ma(10).mean / self.last_close + 0.000001
+            # atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
+            # aer10 = self.aer.get_ma(10).mean / self.last_close + 0.000001
             # aer60 = self.aer.get_ma(60).mean / self.last_close + 0.000001
             
-            ma3 = (self.ma.get_ma(3).mean / self.last_close - 1) / atr10
+            # ma3 = (self.ma.get_ma(3).mean / self.last_close - 1) / atr10
+            # ma10 = (self.ma.get_ma(10).mean / self.last_close - 1) / atr10
+            # ma60 = (self.ma.get_ma(60).mean / self.last_close - 1) / atr10
 
             top = self._get_latest_top()
-            target_tr = atr10
+            # bottom = self._get_latest_bottom()
 
             buy_price = top + 0.1
-            sell_atr = 0.5
-            sell_price = buy_price * (1 + sell_atr * target_tr)
-            stop_price = buy_price * (1 - 6 * sell_atr * target_tr)
+            
+            # earn_tr10   = 0.5 * atr10
+            # earn_tr60   = 1 * atr60
+            # earn_er10     = 4 * aer10
+            # earn_er60     = 10 * aer60
+            # earn_bottom = 0.2 * (top - bottom) / top
+            # earn_ma3    = - 1 * ma3 * atr10
+            # earn_ma10   = - 1 * ma10 * atr10
+            # earn_ma60   = - 0.1 * ma60 * atr10
+
+            sell_price = buy_price * (1 + 5 * atr60) # np.mean([earn_tr10, earn_tr60, earn_er10, earn_bottom, earn_ma3])
+            stop_price = buy_price * (1 - 2 * atr60)
             p = 0.6
             possible_loss = buy_price - stop_price
             
@@ -599,14 +610,15 @@ class PolicySwing(PolicyBreakThrough):
             # leverage = min(5, int(leverage // 1))
             leverage = 1
 
-            if rw > 0 and rl > 0 and leverage > 0 and ma3 < -0.22: #
+            if rw > 0 and rl > 0 and leverage > 0: # and ma3 < -0.22
             # if leverage > 0:
                 open_time = self.account_state.get_timestamp()
                 order = None
                 
-                # There is buy order flying
+                # There is a same bought order flying
                 if (self.buy_order and 
-                    self.buy_order.is_alive()
+                    self.buy_order.is_alive() and
+                    self.buy_order.entered_info.price == buy_price 
                 ):  
                     if self.buy_order.not_entered():
                         # Same enter info, only change exit info.
@@ -614,20 +626,20 @@ class PolicySwing(PolicyBreakThrough):
                         order.clear_exit()
 
                 else:
-                    # No flying order, create new
+                    # No same flying order, create new
                     order = Order(OrderSide.BUY, buy_price, Order.ABOVE, 'Long', 
                         open_time, leverage=leverage, can_be_sent=True)
                     new_order = order
 
                 if order:
                     # To make sure not move the order to finished
-                    # order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=100*60000)
-                    order.add_exit(stop_price, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000)
-                    order.add_exit(sell_price, Order.ABOVE, "Long exit")
+                    order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=2*60000)
+                    # order.add_exit(stop_price, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000) # , lock_time=1*60000
+                    # order.add_exit(sell_price, Order.ABOVE, "Long exit", can_be_sent=True)
                 
 
                 open_time = self.account_state.get_timestamp()
-                self.buy_order_valid_until = open_time      # current one step
+                self.buy_order_valid_until = open_time + 0.5 * 60000      # current one step
 
         if self.new_top:
             # Each top only order once

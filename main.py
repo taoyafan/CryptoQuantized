@@ -35,7 +35,7 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
             # Wait a new price
             new_price = adaptor.get_price()
             while new_price == price:
-                time.sleep(0.2)
+                time.sleep(0.02) # Update per 20 ms
                 new_price = adaptor.get_price()
             price = new_price
             new_step = False
@@ -95,7 +95,7 @@ def real_trade():
     token_name='BTC'
     is_futures=False
     log_en = True
-    analyze_en = True
+    analyze_en = False
     policy_private_log = True
 
     # Updata data to latest
@@ -161,6 +161,8 @@ def real_trade():
             main_loop(state, adaptor, policy, log_en)
         except KeyboardInterrupt:
             break
+        except AssertionError as ex:
+            raise(ex)
         except Exception as ex:
             # traceback.print_exc()
             print(ex)
@@ -205,8 +207,8 @@ def simulated_trade():
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
                 # start_str="2022/03/05 14:00 UTC+8", is_futures=is_futures)
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
-                start_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
-                # num=100000, is_futures=is_futures)
+                # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
+                num=70000, is_futures=is_futures)
                 # start_str='2023-06-14 11:24:00 UTC+8', end_str='2023-06-15 00:35:00 UTC+8', is_futures=is_futures)
                 # start_str='2023-06-13 20:10:00 UTC+8', end_str='2023-06-13 20:34:00 UTC+8', is_futures=is_futures)
                 # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=is_futures)
@@ -266,10 +268,6 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
-    # TODO 
-    # Print create order
-    # send exit order too, using OCO order?
-    # Not catch assert error or add assert failed message
     real = False
     if real:
         # Log to file
