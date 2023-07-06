@@ -268,7 +268,7 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
-    real = False
+    real = True
     if real:
         # Log to file
         file_path = os.path.join('log','log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
