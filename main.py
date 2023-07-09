@@ -70,7 +70,8 @@ def plot(data: Data, policy: Policy, state: AccountState):
 
     fig.plot(plot_candle = data.len()<=1100, 
              points      = policy.get_plot_points(data), 
-             earn_point  = earn_point)
+             earn_point  = earn_point,
+             mas= [3, 10])
 
 
 def final_log(data: Data, policy: Policy, state: AccountState):
@@ -197,21 +198,19 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "+0_5-3atr10_bias0_1"
+    exp_name = "SellAfter2Step-fixPoint"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # Test
-                # start_str="2022-05-12 14:00:00 UTC+8",  end_str="2022-05-12 16:44:00 UTC+8", is_futures=is_futures)
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
-                # start_str="2022/03/05 14:00 UTC+8", is_futures=is_futures)
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
-                num=70000, is_futures=is_futures)
-                # start_str='2023-06-14 11:24:00 UTC+8', end_str='2023-06-15 00:35:00 UTC+8', is_futures=is_futures)
-                # start_str='2023-06-13 20:10:00 UTC+8', end_str='2023-06-13 20:34:00 UTC+8', is_futures=is_futures)
-                # end_str=milliseconds_to_date(1656158819999+1) + ' UTC+8', is_futures=is_futures)
+                # num=100000, is_futures=is_futures)
+                start_str='2023-06-08 18:43:00 UTC+8', end_str='2023-06-08 20:50:00 UTC+8', is_futures=is_futures)
+                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
+                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
 
     print('Loading data finished')
 
@@ -268,10 +267,12 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
-    real = True
+    real = False
     if real:
         # Log to file
-        file_path = os.path.join('log','log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
+        path = os.getcwd()
+        file_path = os.path.join(path,'log')
+        file_path = os.path.join(file_path,'log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
         print('Log to file: {}'.format(file_path))
         sys.stdout = Logger(file_path)
         real_trade()

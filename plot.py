@@ -29,7 +29,8 @@ class PricePlot:
 
     def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, 
              opt_point: OptPoints|None=None, earn_point: IdxValue|None=None, 
-             points: List[Points]|None=None, fig=plt.figure(figsize=(10, 5))):
+             points: List[Points]|None=None, fig=plt.figure(figsize=(10, 5)),
+             mas: List[int]=[]):
 
         figure_num = 1
         figure_num += 1 if plot_vol else 0
@@ -45,7 +46,7 @@ class PricePlot:
             subplot.plot(range(0, len(self.data)), self.data['close'],  # type: ignore
                         color="gray", linewidth=1.0, label='base')
                         
-        for ma in [300]:
+        for ma in mas:
             subplot.plot(range(0, len(self.data)), self.data['close'].rolling(ma).mean())
 
         if points:

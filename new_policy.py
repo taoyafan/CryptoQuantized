@@ -307,6 +307,17 @@ class PolicyBreakThrough(Policy):
                         # Is bottom
                         found_bottom = True
                         self.finding_bottom = False
+                        self._update_points(idx, timestamp, found_top, found_bottom)
+
+                    # But get new top, then select the lowest low as bottom
+                    elif self.highs[idx] > self.last_top and recovered == False:
+                        found_bottom = True
+                        self.finding_bottom = False
+
+                        i_min = int(np.argmin(self.lows[self.front_threshold: idx])) + self.front_threshold
+                        self.last_checked_time = self.last_checked_time - 60000 * (idx - i_min)
+                        self._update_points(i_min, timestamp, found_top, found_bottom)
+
 
                 else:
                     time_after_last = self.last_checked_time - self.last_top_time.value
@@ -318,33 +329,16 @@ class PolicyBreakThrough(Policy):
                         # Is top
                         found_top = True
                         self.finding_bottom = True
+                        self._update_points(idx, timestamp, found_top, found_bottom)
 
-                # If found
-                if found_top or found_bottom:
-                    self._update_points(idx, timestamp, found_top, found_bottom)
-                    recovered = False
-                # If not found the top and bottom check whether latest point is fake
-                else:
-                    if self.finding_bottom and self.highs[idx] > self.last_top and recovered == False:
-                        # Found new top when searching bottom, last top is fake top, keep search top
-                        self.finding_bottom = False
-                        # Revert time info of last top
-                        self.delta_time_top.recover()
-                        self.last_top_time.recover()
-                        self.last_checked_time -= 60000
-                        recovered = True
-                        
-                    elif (not self.finding_bottom) and self.lows[idx] < self.last_bottom and (not recovered):
-                        # Found new bottom when searching top, last bottom is fake bottom, keep search bottom
+                    # But get new bottom, then select the highest high as bottom
+                    elif self.lows[idx] < self.last_bottom:
+                        found_top = True
                         self.finding_bottom = True
-                        # Revert time info of last bottom
-                        self.delta_time_bottom.recover()
-                        self.last_bottom_time.recover()
-                        self.last_checked_time -= 60000
-                        recovered = True
-                    
-                    else:
-                        recovered = False
+
+                        i_max = int(np.argmax(self.highs[self.front_threshold: idx])) + self.front_threshold
+                        self.last_checked_time = self.last_checked_time - 60000 * (idx - i_max)
+                        self._update_points(i_max, timestamp, found_top, found_bottom)
 
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
@@ -545,7 +539,7 @@ class PolicySwing(PolicyBreakThrough):
             self.account_state.cancel_order(self.sell_order)
             self.sell_order_valid_until = np.inf
         
-        if (timestamp >= self.buy_order_valid_until and 
+        if (timestamp + 59000 > self.buy_order_valid_until and 
             self.buy_order and 
             self.buy_order.not_entered()
         ):
@@ -577,16 +571,16 @@ class PolicySwing(PolicyBreakThrough):
         ):
 
             atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
-            # atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
+            atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
             # aer10 = self.aer.get_ma(10).mean / self.last_close + 0.000001
             # aer60 = self.aer.get_ma(60).mean / self.last_close + 0.000001
             
-            # ma3 = (self.ma.get_ma(3).mean / self.last_close - 1) / atr10
-            # ma10 = (self.ma.get_ma(10).mean / self.last_close - 1) / atr10
-            # ma60 = (self.ma.get_ma(60).mean / self.last_close - 1) / atr10
+            ma3 = (self.ma.get_ma(3).mean / self.last_close - 1) / atr60
+            ma10 = (self.ma.get_ma(10).mean / self.last_close - 1) / atr60
+            ma60 = (self.ma.get_ma(60).mean / self.last_close - 1) / atr60
 
             top = self._get_latest_top()
-            # bottom = self._get_latest_bottom()
+            bottom = (self._get_latest_bottom() / self.last_close - 1) / atr60
 
             buy_price = top + 0.1
             
@@ -599,19 +593,32 @@ class PolicySwing(PolicyBreakThrough):
             # earn_ma10   = - 1 * ma10 * atr10
             # earn_ma60   = - 0.1 * ma60 * atr10
 
-            sell_price = buy_price * (1 + 5 * atr60) # np.mean([earn_tr10, earn_tr60, earn_er10, earn_bottom, earn_ma3])
-            stop_price = buy_price * (1 - 2 * atr60)
-            p = 0.6
-            possible_loss = buy_price - stop_price
+            # sell_price = buy_price * (1 + 5 * atr60) # np.mean([earn_tr10, earn_tr60, earn_er10, earn_bottom, earn_ma3])
+            # stop_price = buy_price * (1 - 2 * atr60)
+            # p = 0.6
+            # possible_loss = buy_price - stop_price
             
-            rw = (sell_price - buy_price) / buy_price - 2 * self.fee
-            rl = possible_loss / buy_price + 2 * self.fee
+            # rw = (sell_price - buy_price) / buy_price - 2 * self.fee
+            # rl = possible_loss / buy_price + 2 * self.fee
             # leverage = p / rl - (1 - p) / rw
             # leverage = min(5, int(leverage // 1))
             leverage = 1
+            
+            # loss_cond1 = (ma3 > -0.3) and (ma3 < -0.2)
+            # loss_cond2 = (ma3 > 0.02) and (ma3 < 0.1)
+            # loss_cond3 = (ma3 > 0.4)
+            # loss_ma3_cond = loss_cond1 or loss_cond2 or loss_cond3
 
-            if rw > 0 and rl > 0 and leverage > 0: # and ma3 < -0.22
-            # if leverage > 0:
+            # loss_cond4 = (ma10 > 0.3)
+            # loss_cond5 = (ma10 > -0.06) and (ma10 < 0.05)
+            # loss_ma10_cond = loss_cond4 or loss_cond5
+            
+            # loss_bottom_cond = bottom > -0.6
+
+            # is_skip = (loss_ma3_cond or loss_ma10_cond) and loss_bottom_cond
+
+            # if rw > 0 and rl > 0 and leverage > 0: # and (not is_skip)
+            if leverage > 0:
                 open_time = self.account_state.get_timestamp()
                 order = None
                 
