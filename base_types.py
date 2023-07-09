@@ -468,7 +468,7 @@ class OptState:
             for o_r in self.other_reasons:
                 earns = self.earns[r][o_r]
                 if len(earns) > 0:
-                    print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                    print('--- {} reason {}, nums: {}, earn nums: {}, average earn: {:.4f}%, median earn: {:.4f}%, max earn: {:.4f}%, min earn: {:.4f}%'.format(
                         other_name, o_r, self.nums[r][o_r], 
                         len([e for e in earns if e >= 0]), np.mean(earns)*100, np.median(earns)*100, max(earns)*100, min(earns)*100
                     ))
@@ -477,7 +477,7 @@ class OptState:
             
             if len(self.other_reasons) > 1 and len(earns_for_reason) > 0:
                 earn_num = len([e for e in earns_for_reason if e >= 0])
-                print('- Total nums is {}, earn nums: {}, {:.2f}%, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+                print('- Total nums is {}, earn nums: {}, {:.2f}%, average earn: {:.4f}%, median earn: {:.4f}%, max earn: {:.4f}%, min earn: {:.4f}%'.format(
                     nums_for_reason, earn_num, 100*earn_num/nums_for_reason, 
                     np.mean(earns_for_reason)*100, np.median(earns_for_reason)*100, max(earns_for_reason)*100, min(earns_for_reason)*100
                 ))
@@ -485,9 +485,9 @@ class OptState:
             nums_for_all += nums_for_reason
 
         if len(self.reasons) > 1 and len(earns_for_all) > 0:
-            print('Total nums is {}, earn nums: {}, average earn: {:.3f}%, median earn: {:.3f}%, max earn: {:.3f}%, min earn: {:.3f}%'.format(
+            print('Total nums is {}, earn nums: {}, average earn: {:.4f}%, median earn: {:.4f}%, max earn: {:.4f}%, min earn: {:.4f}%'.format(
                 nums_for_all, len([e > 0 for e in earns_for_all]), 
-                    np.mean(earns_for_all)*100, max(earns_for_all)*100, np.median(earns_for_all), min(earns_for_all)*100
+                    np.mean(earns_for_all)*100, np.median(earns_for_all), max(earns_for_all)*100, min(earns_for_all)*100
             ))
 
 
