@@ -208,13 +208,13 @@ def simulated_trade():
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
                 # num=100000, is_futures=is_futures)
-                start_str='2023-06-08 18:43:00 UTC+8', end_str='2023-06-08 20:50:00 UTC+8', is_futures=is_futures)
-                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2023-05-04 9:30:00 UTC+8', end_str='2023-05-04 11:30:00 UTC+8', is_futures=is_futures)
+                start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
+                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=1000000, is_futures=is_futures)
 
     print('Loading data finished')
 
-    fee = 0.00001
+    fee = 0.000018
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=fee, log_en=log_en)
 

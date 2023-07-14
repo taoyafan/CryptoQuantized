@@ -83,11 +83,11 @@ class Adaptor(ABC):
         return
 
     @abstractmethod    
-    def balance(self) -> float:
+    def balance(self, refresh_account=False) -> float:
         return
         
     @abstractmethod
-    def pos_amount(self) -> float:
+    def pos_amount(self, refresh_account=False) -> float:
         return
     
     @abstractmethod
@@ -473,7 +473,7 @@ class AdaptorBinance(Adaptor):
                 
                 if trade_info.reduce_only == False:
                     leverage = min(self.leverage, trade_info.leverage)
-                    pos_amount = leverage * self.total_value() / (target_price * 1.001) - self.min_pos
+                    pos_amount = leverage * self.total_value() / (target_price * 1.0001) - self.min_pos
 
                 else:
                     pos_amount = 0
@@ -502,7 +502,8 @@ class AdaptorBinance(Adaptor):
 
                     # STOP
                     elif order_type == self.OrderType.STOP:
-                        price = target_price * 1.0001 if side == OrderSide.BUY else target_price * 0.999
+                        # price = target_price * 1.0001 if side == OrderSide.BUY else target_price * 0.999
+                        price = target_price * 0.99999 if side == OrderSide.BUY else target_price * 1.00001    # More cheap
                         order_info = self._order_stop(side, pos_amount, stopPrice=target_price, price=price)
                         assert order_info is not None, 'Order info is None when stop'
                         trade_info.sent(order_info['orderId'])
@@ -1014,10 +1015,10 @@ class AdaptorSimulator(Adaptor):
         self.i += 1
         return True
     
-    def balance(self) -> float:
+    def balance(self, refresh_account=False) -> float:
         return self._balance
         
-    def pos_amount(self) -> float:
+    def pos_amount(self, refresh_account=False) -> float:
         return self._pos_amount
 
     def pos_value(self, price=None) -> float:

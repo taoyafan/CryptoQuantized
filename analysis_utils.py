@@ -11,12 +11,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from enum import Enum, auto
 from typing import Dict, Optional, List, Set, TypeVar, Generic, Callable
+import os
 
 def drop_col(df: pd.DataFrame, name):
     na = [n for n in name if n in df]
     df.drop(na, axis=1, inplace=True)
     
-def plot(df: pd.DataFrame, start, end, points=[]):
+def plot(df: pd.DataFrame, start, end, points=[], mas=[]):
     plot_df = df.loc[start:end, :]
     fig = PricePlot(plot_df['open'], plot_df['high'], plot_df['low'], plot_df['close'], 
             plot_df['open_time'].map(milliseconds_to_date))
@@ -24,7 +25,7 @@ def plot(df: pd.DataFrame, start, end, points=[]):
     for p in points:
         p.idx -= start
         
-    fig.plot(points=points, fig=plt.figure(figsize=(25, 8)))
+    fig.plot(points=points, fig=plt.figure(figsize=(25, 8)), mas=mas)
 
 # 画数据分布图
 def histplot(pred, truth=None, xlim=None):
@@ -84,8 +85,7 @@ def heatmap_font(pd_data, target, k=-1):
     corrmat = pd_data.corr()
     f, ax = plt.subplots(figsize=(20, 16))
     cols = corrmat.nlargest(k, target)[target].index
-    # cm = np.corrcoef(pd_data[cols].values.T)
-    cm = pd_data[cols].corr(method='spearman')
+    cm = np.corrcoef(pd_data[cols].values.T)
     sns.set(font_scale=1.25) # type: ignore
     hm = sns.heatmap(cm,
                      cbar=True,
@@ -343,7 +343,10 @@ def read_data(symbol, exp_name, start, end, is_futures) -> SavedInfo:
     # print(data.start_time())
     # print(data.end_time())
 
-    base_path = '.\\log\\{}\\{}_start_{}_end_{}_'.format(exp_name, symbol, data.start_time(), data.end_time())
+    path = os.getcwd()
+    file_path = os.path.join(path,'log')
+    file_path = os.path.join(file_path,'{}'.format(exp_name))
+    base_path = os.path.join(file_path, '{}_start_{}_end_{}_'.format(symbol, data.start_time(), data.end_time()))
     trade_info_path = base_path + 'trade_info.json'
     vertices_path = base_path + 'vertices.json'
     earn_path = base_path + 'earn_points.json'
@@ -382,9 +385,12 @@ def get_combined_data(symbol, exp_name, start, end, is_futures, confirm_step=30)
     top_idx = -1
     bottom_idx = -1
     top_time = info.tops.idx
-    top_value = info.tops.value
+    confirm_top_time = info.tops_confirm.idx
+    top_value = info.tops_confirm.value
+    
     bottom_time = info.bottoms.idx
-    bottom_value = info.bottoms.value
+    confirm_bottom_time = info.bottoms_confirm.idx
+    bottom_value = info.bottoms_confirm.value
 
     # earn = target_sell_price - current_price
     # target_sell_price = the first sell_price which is not NaN after now
@@ -400,10 +406,10 @@ def get_combined_data(symbol, exp_name, start, end, is_futures, confirm_step=30)
         open_time = x['open_time']
 
         # Update top_idx and bottom_idx
-        if top_idx + 1 < len(top_time) and open_time >= int(top_time[top_idx + 1]) + confirm_step*60000:
+        if top_idx + 1 < len(confirm_top_time) and open_time >= int(confirm_top_time[top_idx + 1]):
             top_idx += 1
 
-        if bottom_idx + 1 < len(bottom_time) and open_time >= int(bottom_time[bottom_idx + 1]) + confirm_step*60000:
+        if bottom_idx + 1 < len(confirm_bottom_time) and open_time >= int(confirm_bottom_time[bottom_idx + 1]):
             bottom_idx += 1
         
         # Get last top and bottom

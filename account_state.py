@@ -104,15 +104,13 @@ class AccountState:
 
     # Each time traded need to call this function
     def update_pos(self):
-        self.balance: float = self.adaptor.balance()
+        self.balance: float = self.adaptor.balance(True)
         self.pos_amount: float = self.adaptor.pos_amount()
         self.pos_value: float = self.adaptor.pos_value()
 
         if self.log_en:
             print('Balance: {:.4f}, pos value, amount: {}, {}'.format(self.balance, self.pos_value, self.pos_amount))
             print()
-
-        self.update_analyzed_info()
 
     def get_timestamp(self) -> int:
         return self.adaptor.get_timestamp()
