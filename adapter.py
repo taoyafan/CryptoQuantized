@@ -128,11 +128,7 @@ class AdaptorBinance(Adaptor):
 
     def __init__(self, usd_name, token_name, data:Data, log_en=True, leverage=2, is_futures=True):
         super().__init__(usd_name, token_name, data, log_en)
-        proxies = {
-            "http": "http://127.0.0.1:8900",
-            "https": "http://127.0.0.1:8900",
-        }
-        self.client = Client(API_KEY, SECRET_KEY, {'proxies': proxies, 'timeout': 20}) # type: ignore
+        self.client = Client(API_KEY, SECRET_KEY) # type: ignore
         self.is_futures = is_futures
         self._update_account_info()
         self.enable_oco = True

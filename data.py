@@ -221,13 +221,9 @@ class Data:
             
             if end_ms > start_ms:
                 if self.client is None:
-                    proxies = {
-                        "http": "http://127.0.0.1:8900",
-                        "https": "http://127.0.0.1:8900",
-                    }
 
                     # create the Binance client, no need for api key
-                    self.client = Client("", "",  {'proxies': proxies})
+                    self.client = Client("", "")
 
                 klines = get_historical_klines(self.client, self.symbol, self.interval, 
                                             start_ms, end_ms, self.is_futures)
@@ -345,8 +341,8 @@ def main():
     # symbol = "DOGEBUSD"
     # symbol = "1000LUNCBUSD"
     interval = DataType.INTERVAL_1MINUTE
-    start = "2023/3/23 00:00 UTC+8"
-    # start = "140 days ago UTC+8"
+    # start = "2023/7/23 00:00 UTC+8"
+    start = "2 days ago UTC+8"
     end = "1 minute ago UTC+8"
 
     data = Data(symbol, interval, is_futures=False)
