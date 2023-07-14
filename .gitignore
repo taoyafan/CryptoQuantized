@@ -1,6 +1,8 @@
 __pycache__
 .vscode
-data
-log
+data/*
+!data/.gitkeep
+log/*
+!log/.gitkeep
 api_key.py
 test.ipynb
