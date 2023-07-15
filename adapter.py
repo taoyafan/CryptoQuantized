@@ -278,7 +278,12 @@ class AdaptorBinance(Adaptor):
                 # It will update self.order_info
                 order_info = self._get_order(order_id=entered_info.order_id)
 
-                if self._is_order_filled(order_info):
+                partially_filled = self._is_order_partially_filled(order_info)
+
+                if self._is_order_filled(order_info) or partially_filled:
+                    if partially_filled:
+                        order_info = self._cancel_order(order_id=entered_info.order_id)
+
                     time = self._get_order_time(order_info)
                     assert time, 'time is None'
                     entered_info.executed(self._get_exe_price(order_info), time)
@@ -503,7 +508,7 @@ class AdaptorBinance(Adaptor):
                     # STOP
                     elif order_type == self.OrderType.STOP:
                         # price = target_price * 1.0001 if side == OrderSide.BUY else target_price * 0.999
-                        price = target_price * 0.99999 if side == OrderSide.BUY else target_price * 1.00001    # More cheap
+                        price = target_price
                         order_info = self._order_stop(side, pos_amount, stopPrice=target_price, price=price)
                         assert order_info is not None, 'Order info is None when stop'
                         trade_info.sent(order_info['orderId'])
@@ -691,6 +696,10 @@ class AdaptorBinance(Adaptor):
         assert order_info, 'Order info is None when check is order filled'
         return order_info['status'] == 'FILLED'
     
+    def _is_order_partially_filled(self, order_info) -> bool:
+        assert order_info, 'Order info is None when check is order filled'
+        return order_info['status'] == 'PARTIALLY_FILLED'
+
     def _get_exe_price(self, order_info) -> float:
         assert order_info and self._is_order_filled(order_info), 'get exe price failed'
 

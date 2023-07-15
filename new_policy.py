@@ -226,6 +226,7 @@ class PolicyBreakThrough(Policy):
         super().__init__(state, log_en, analyze_en)
         self.highs = np.empty(0)
         self.lows = np.empty(0)
+        self.point_times = np.empty(0)
         self.finding_bottom = True
 
         self.k_same_points_delta = kwargs['k_same_points_delta']
@@ -281,6 +282,7 @@ class PolicyBreakThrough(Policy):
         # Update highs, lows
         self.highs = np.append(self.highs, high)
         self.lows = np.append(self.lows, low)
+        self.point_times = np.append(self.point_times, timestamp)
 
         while True:
             # 1). Check whether newest data break last confirmed point
@@ -288,8 +290,14 @@ class PolicyBreakThrough(Policy):
             if self.finding_bottom and self.highs[-1] > self.last_top:
                 self.finding_bottom = False
 
-                i_min = int(np.argmin(self.lows[self.front_threshold:])) + self.front_threshold
-                self.last_checked_time = timestamp - 60000 * (len(self.lows) - 1 - i_min)
+                lowest = np.inf
+                i_min = len(self.lows) - 1
+                for i in range(self.front_threshold, len(self.lows)):
+                    if self.lows[i] < self.lows[i-1] and self.lows[i] < lowest:
+                        lowest = self.lows[i]
+                        i_min = i
+                        
+                self.last_checked_time = self.point_times[i_min]
                 self._update_points(i_min, timestamp, found_top = False, found_bottom = True)
 
             # If finding top but get new bottom, then select the highest high as top
@@ -297,8 +305,13 @@ class PolicyBreakThrough(Policy):
                 found_top = True
                 self.finding_bottom = True
 
-                i_max = int(np.argmax(self.highs[self.front_threshold:])) + self.front_threshold
-                self.last_checked_time = timestamp - 60000 * (len(self.highs) - 1 - i_max)
+                highest = 0
+                i_max = 0
+                for i in range(self.front_threshold, len(self.highs)):
+                    if self.highs[i] > self.highs[i-1] and self.highs[i] > highest:
+                        highest = self.highs[i]
+                        i_max = i
+                self.last_checked_time = self.point_times[i_max]
                 self._update_points(i_max, timestamp, found_top = True, found_bottom = False)
 
             # 2). Check data with threshold
@@ -312,7 +325,7 @@ class PolicyBreakThrough(Policy):
 
             # Then we can check the next time
             self.last_checked_time += 60000
-            idx = len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000
+            idx = int(len(self.highs) - 1 - (timestamp - self.last_checked_time) // 60000)
 
             # If threshold is 1, We must has three data, idx is len - threshold - 1
             # e.g. threshold is 1, len is 3, then the high/low we checked is highs/lows[1]
@@ -348,15 +361,6 @@ class PolicyBreakThrough(Policy):
                         found_top = True
                         self.finding_bottom = True
                         self._update_points(idx, timestamp, found_top, found_bottom)
-
-                    # But get new bottom, then select the highest high as bottom
-                    elif self.lows[idx] < self.last_bottom:
-                        found_top = True
-                        self.finding_bottom = True
-
-                        i_max = int(np.argmax(self.highs[self.front_threshold: idx])) + self.front_threshold
-                        self.last_checked_time = self.last_checked_time - 60000 * (idx - i_max)
-                        self._update_points(i_max, timestamp, found_top, found_bottom)
 
             # if idx >= self.front_threshold:
         # while confirmed_time <= timestamp:
@@ -452,6 +456,7 @@ class PolicyBreakThrough(Policy):
 
             self.highs = self.highs[idx-self.front_threshold:]
             self.lows = self.lows[idx-self.front_threshold:]
+            self.point_times = self.point_times[idx-self.front_threshold:]
 
 
 class PolicyDelayAfterBreakThrough(PolicyBreakThrough):
@@ -624,22 +629,25 @@ class PolicySwing(PolicyBreakThrough):
             # ll_top_cond = top_atr60 > 1.8
             
             # # Get top by atr60
-            # if self.finding_bottom:
-            #     bottom = np.min(self.lows[self.front_threshold:])
-            #     ll_bottom = self.last_bottom
-            #     i_min = np.argmin(self.lows[self.front_threshold:]) + self.front_threshold
-            #     step_after_bottom = len(self.lows) - 1 - i_min
-            # else:
-            #     bottom = self.last_bottom
-            #     ll_bottom = self.ll_bottom
-            #     step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
-            
-            # bottom_atr60 = price_atr60(bottom)
-            # ll_bottom_atr60 = price_atr60(ll_bottom)
+            # if len(self.lows) > self.front_threshold:
+            #     if self.finding_bottom:
+            #         bottom = np.min(self.lows[self.front_threshold:])
+            #         ll_bottom = self.last_bottom
+            #         i_min = np.argmin(self.lows[self.front_threshold:]) + self.front_threshold
+            #         step_after_bottom = len(self.lows) - 1 - i_min
+            #     else:
+            #         bottom = self.last_bottom
+            #         ll_bottom = self.ll_bottom
+            #         step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
+                
+            #     bottom_atr60 = price_atr60(bottom)
+            #     ll_bottom_atr60 = price_atr60(ll_bottom)
 
-            # # bottom_cond = bottom_atr60 > -2
-            # ll_bottom_cond = ll_bottom_atr60 > -3
-            # # bottom_step_cond = step_after_bottom < 6.5
+            #     # bottom_cond = bottom_atr60 > -2
+            #     ll_bottom_cond = ll_bottom_atr60 > -3
+            #     # bottom_step_cond = step_after_bottom < 6.5
+            # else:
+            #     ll_bottom_cond = False
 
             # # Cycle step condition
             # # cycle_step = step_after_top - step_after_bottom
@@ -655,7 +663,11 @@ class PolicySwing(PolicyBreakThrough):
             # tr_cond = tr_atr60 < 2
 
             # Buy price
-            buy_price = self.last_top + 0.1
+            if self.last_top % 1 < 0.2:
+                buy_price = self.last_top // 1 + 0.02
+            else:
+                buy_price = self.last_top // 1 + 1.02
+
 
 
             # sell_price = buy_price * (1 + 5 * atr60) # np.mean([earn_tr10, earn_tr60, earn_er10, earn_bottom, earn_ma3])
@@ -669,12 +681,11 @@ class PolicySwing(PolicyBreakThrough):
             # leverage = min(5, int(leverage // 1))
             leverage = 1
 
-            # if rw > 0 and rl > 0 and leverage > 0: # and (not is_skip)
-            if (leverage > 0
-            # if (leverage > 0 and ma3_cond and ma10_cond and ma60_cond and top_cond
+            # can_skip = (ma3_cond and ma10_cond and ma60_cond and top_cond
             #     and ll_top_cond and ll_bottom_cond and low_cond and tr_cond and aer10_cond
-            #     and aer3_cond
-            ):
+            #     and aer3_cond)
+            # if rw > 0 and rl > 0 and leverage > 0: # and (not can_skip)
+            if (leverage > 0):
                 open_time = self.account_state.get_timestamp()
                 order = None
                 
