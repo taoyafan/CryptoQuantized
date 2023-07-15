@@ -210,7 +210,7 @@ def simulated_trade():
                 # num=100000, is_futures=is_futures)
                 # start_str='2023-05-04 9:30:00 UTC+8', end_str='2023-05-04 11:30:00 UTC+8', is_futures=is_futures)
                 start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=1000000, is_futures=is_futures)
+                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
 
     print('Loading data finished')
 
