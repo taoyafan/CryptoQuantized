@@ -63,7 +63,7 @@ class DirectionType(Enum):
 class TradeInfo:
     def __init__(self, price: float, direction: DirectionType, side: OrderSide, 
                  reason: str, reduce_only: bool, leverage: int = 1,
-                 can_be_sent: bool = False, lock_time: int = 0):
+                 can_be_sent: bool = False, lock_time: int = 0, loss_allowed = np.inf):
         self.price: float             = price
         self.direction: DirectionType = direction
         self.side: OrderSide          = side
@@ -71,6 +71,7 @@ class TradeInfo:
         self.reduce_only: bool        = reduce_only
         self.leverage: float          = leverage
         self.can_be_sent: bool        = can_be_sent
+        self.loss_allowed             = loss_allowed
         
         # Info can be updated
         self.lock_start_time: Optional[int] = None
@@ -82,7 +83,6 @@ class TradeInfo:
         self.executed_price: Optional[float] = None
         self.executed_time: Optional[int]    = None
 
-    # TODO call this when executed
     def executed(self, executed_price: float, time: int):
         assert self.executed_price is None, "Can not set actual price twice"
         self.executed_price = executed_price
@@ -91,7 +91,6 @@ class TradeInfo:
         if not self._is_sent:
             self._is_sent = True
     
-    # TODO call this when sent
     def sent(self, order_id=None):
         assert self._is_sent == False, "Can not send twice"
         assert order_id, "Order ID can not be None"
@@ -184,7 +183,8 @@ class Order:
                  leverage: int = 1,
                  priority: Priority = Priority(2),
                  reduce_only: bool = False, 
-                 can_be_sent: bool = False):
+                 can_be_sent: bool = False,
+                 loss_allowed = np.inf):
         """
         params:
             priority: Higher value higher priority
@@ -206,7 +206,8 @@ class Order:
                                       reason        = reason,
                                       reduce_only   = reduce_only,
                                       leverage      = leverage,
-                                      can_be_sent = can_be_sent)
+                                      can_be_sent   = can_be_sent,
+                                      loss_allowed  = loss_allowed)
 
         self.create_time    = create_time
         self.enter_priority = priority
@@ -228,6 +229,9 @@ class Order:
 
     def not_entered(self) -> bool:
         return self.state.value < self.state.ENTERED.value
+    
+    def entered(self) -> bool:
+        return self.state.value >= self.state.ENTERED.value and self.state != Order.State.CANCELED
     
     def wiat_exited(self) -> bool:
         return self.is_alive() and self.state.value >= self.state.ENTERED.value
@@ -268,7 +272,8 @@ class Order:
                  reason: str,
                  priority: Priority = Priority(2),
                  can_be_sent: bool = False,
-                 lock_time: int = 0):
+                 lock_time: int = 0,
+                 loss_allowed = np.inf):
 
         self.exited_infos.append(TradeInfo(price         = price,
                                            direction     = direction,
@@ -276,7 +281,8 @@ class Order:
                                            reason        = reason,
                                            reduce_only   = True,
                                            can_be_sent   = can_be_sent,
-                                           lock_time     = lock_time))
+                                           lock_time     = lock_time,
+                                           loss_allowed  = loss_allowed))
         # Lowest exit priority
         if self.exit_priority is None or priority < self.exit_priority:
             self.exit_priority = priority

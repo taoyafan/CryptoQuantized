@@ -718,7 +718,7 @@ class PolicySwing(PolicyBreakThrough):
                     else:
                         # No same flying order, create new
                         order = Order(OrderSide.BUY, buy_price, Order.ABOVE, 'Long', 
-                            open_time, leverage=leverage, can_be_sent=True)
+                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0)
                         new_order = order
 
                     if order:
