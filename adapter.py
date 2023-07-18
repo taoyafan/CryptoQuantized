@@ -424,9 +424,10 @@ class AdaptorBinance(Adaptor):
             can_be_sent: bool=True, 
             conflict_id: Optional[int]=None) -> Optional[float]:
         
-        price       = trade_info.price
-        direction   = trade_info.direction 
-        side        = trade_info.side
+        price        = trade_info.price
+        direction    = trade_info.direction 
+        side         = trade_info.side
+        loss_allowed = trade_info.loss_allowed
         
         # Return executed price, or None
         other_side = OrderSide.BUY if side == OrderSide.SELL else OrderSide.SELL
@@ -453,6 +454,11 @@ class AdaptorBinance(Adaptor):
                 target_price = current_price
                 order_type = self.OrderType.MARKET
         
+        # Check can market order meet the allowed loss
+        if order_type == self.OrderType.MARKET and abs(target_price - price) > loss_allowed:
+            order_type = self.OrderType.LIMIT
+            target_price = price
+
         # 2. Whether send order to server
         if order_type == self.OrderType.MARKET or (can_be_sent and trade_info.can_be_sent):
             # Can trade immediately or can be sent to server first
@@ -507,8 +513,7 @@ class AdaptorBinance(Adaptor):
 
                     # STOP
                     elif order_type == self.OrderType.STOP:
-                        # price = target_price * 1.0001 if side == OrderSide.BUY else target_price * 0.999
-                        price = target_price
+                        price = target_price * (1 + loss_allowed) if side == OrderSide.BUY else target_price * (1 - loss_allowed)
                         order_info = self._order_stop(side, pos_amount, stopPrice=target_price, price=price)
                         assert order_info is not None, 'Order info is None when stop'
                         trade_info.sent(order_info['orderId'])
