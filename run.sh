@@ -1,0 +1,1 @@
+python3 main.py > out.file 2>&1 &
