@@ -220,7 +220,7 @@ class Policy(ABC):
 # Sell when break through prior low
 class PolicyBreakThrough(Policy):
 
-    MIN_THRESHOLD = 3
+    MIN_THRESHOLD = 2
 
     def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
         super().__init__(state, log_en, analyze_en)
@@ -299,6 +299,9 @@ class PolicyBreakThrough(Policy):
                         
                 self.last_checked_time = self.point_times[i_min]
                 self._update_points(i_min, timestamp, found_top = False, found_bottom = True)
+                
+                # We need to check this point for bottom too
+                self.last_checked_time -= 60000
 
             # If finding top but get new bottom, then select the highest high as top
             elif (self.finding_bottom == False) and self.lows[-1] < self.last_bottom:
@@ -313,6 +316,9 @@ class PolicyBreakThrough(Policy):
                         i_max = i
                 self.last_checked_time = self.point_times[i_max]
                 self._update_points(i_max, timestamp, found_top = True, found_bottom = False)
+                
+                # We need to check this point for top too
+                self.last_checked_time -= 60000
 
             # 2). Check data with threshold
             # For each checked time, update threshold, confirmed time
@@ -612,6 +618,8 @@ class PolicySwing(PolicyBreakThrough):
 
                 atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
                 atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
+
+                top = self.last_top
                 
                 def price_atr60(price):
                     nonlocal atr60
@@ -633,7 +641,6 @@ class PolicySwing(PolicyBreakThrough):
                 # aer10_cond = aer_10 < 0.05
 
                 # # Get top by atr60
-                # top = self.last_top
                 # top_atr60 = price_atr60(top)
                 # ll_top_atr60 = price_atr60(self.ll_top)
                 # # step_after_top = (self.last_time - self.last_top_time) // 60000
@@ -676,10 +683,10 @@ class PolicySwing(PolicyBreakThrough):
                 # tr_cond = tr_atr60 < 2
 
                 # Buy price
-                if self.last_top % 1 < 0.2:
-                    buy_price = self.last_top // 1 + 0.02
+                if top % 1 < 0.2:
+                    buy_price = top // 1 + 0.02
                 else:
-                    buy_price = self.last_top // 1 + 1.02
+                    buy_price = top // 1 + 1.02
 
 
 

@@ -768,7 +768,7 @@ class AdaptorBinance(Adaptor):
 
                 if not self.is_futures:
                     kwargs['isIsolated'] = 'TRUE'
-                    kwargs['sideEffectType'] = 'MARGIN_BUY' if kwargs['side'] == 'BUY' else 'AUTO_REPAY'
+                    kwargs['sideEffectType'] = 'MARGIN_BUY' if kwargs['side'] == 'BUY' else 'NO_SIDE_EFFECT'
 
                 order_info = getattr(self.client, method)(**kwargs)
                 self.order_info = order_info
