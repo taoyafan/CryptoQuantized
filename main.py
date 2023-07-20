@@ -39,10 +39,10 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
                 new_price = adaptor.get_price()
             price = new_price
             new_step = False
-        
-        timestamp = adaptor.get_timestamp()
+
+        last_timestamp = int(adaptor.get_latest_kline_value(DataElements.OPEN_TIME))
+        timestamp = last_timestamp + 60000
         state.update_each_time_step(timestamp)
-        last_timestamp = timestamp - 60000
         
         policy.update(
                     high = adaptor.get_latest_kline_value(DataElements.HIGH),
@@ -208,13 +208,13 @@ def simulated_trade():
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
                 # num=100000, is_futures=is_futures)
-                # start_str='2023-05-04 9:30:00 UTC+8', end_str='2023-05-04 11:30:00 UTC+8', is_futures=is_futures)
-                start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2023-06-21 8:00:00 UTC+8', end_str='2023-06-21 9:30:00 UTC+8', is_futures=is_futures)
+                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
+                end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
 
     print('Loading data finished')
 
-    fee = 0.000018
+    fee = 0.00001
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=fee, log_en=log_en)
 
@@ -267,7 +267,7 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
-    real = True
+    real = False
     if real:
         # Log to file
         path = os.getcwd()

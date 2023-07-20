@@ -155,6 +155,7 @@ class AdaptorBinance(Adaptor):
         self.price_last_trade = 0
         self.order_id        += 1
         self.order_info       = None
+        self._update_account_info()
 
     def clear_open_orders(self):
         open_orders = self._client_call('futures_get_open_orders', symbol=self.symbol)
@@ -283,6 +284,7 @@ class AdaptorBinance(Adaptor):
                 if self._is_order_filled(order_info) or partially_filled:
                     if partially_filled:
                         order_info = self._cancel_order(order_id=entered_info.order_id)
+                        print(f"Partially filled: {order_info}")
 
                     time = self._get_order_time(order_info)
                     assert time, 'time is None'
@@ -804,18 +806,23 @@ class AdaptorBinance(Adaptor):
     def _cancel_order(self, order_id = None, client_order_id = None) -> float:
         assert order_id or client_order_id, 'No order id'
 
-        # Return order executed amount
-        order_info = self._client_call(
-            'futures_cancel_order', 
-            symbol            = self.symbol, 
-            orderId           = order_id, 
-            origClientOrderId = client_order_id)
-        
-        # Update order info
-        if client_order_id == self.order_id:
-            self.order_info = order_info
+        try:
+            # Return order executed amount
+            order_info = self._client_call(
+                'futures_cancel_order', 
+                symbol            = self.symbol, 
+                orderId           = order_id, 
+                origClientOrderId = client_order_id)
+            
+            # Update order info
+            if client_order_id == self.order_id:
+                self.order_info = order_info
 
-        self._update_account_info()
+            self._update_account_info()
+        except KeyboardInterrupt as ex:
+            raise ex
+        except BinanceAPIException:
+            order_info = self._get_order(order_id, client_order_id)
 
         return float(order_info['executedQty'])
 
@@ -834,22 +841,18 @@ class AdaptorBinance(Adaptor):
         assert order_id or client_order_id, 'Order id is None'
         assert not self.is_futures or is_oco == False, 'oco not support for futures'
         # TODO OCO support
-        try:
-            order_info = self._client_call(
-                'futures_get_order', 
-                symbol = self.symbol, 
-                orderId = order_id, 
-                origClientOrderId = client_order_id)
-            
-            # Update order info
-            if client_order_id == self.order_id:
-                self.order_info = order_info
 
-            self._update_account_info()
-        except KeyboardInterrupt as ex:
-            raise ex
-        except BinanceAPIException:
-            order_info = None
+        order_info = self._client_call(
+            'futures_get_order', 
+            symbol = self.symbol, 
+            orderId = order_id, 
+            origClientOrderId = client_order_id)
+        
+        # Update order info
+        if client_order_id == self.order_id:
+            self.order_info = order_info
+
+        self._update_account_info()
 
         return order_info
 
