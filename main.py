@@ -267,7 +267,7 @@ def simulated_trade():
 
 
 if __name__ == "__main__":
-    real = False
+    real = True
     if real:
         # Log to file
         path = os.getcwd()
