@@ -10,6 +10,7 @@ from utils import milliseconds_to_date
 from logger import Logger
 import sys
 from account_state import AccountState
+import logging
             
 
 def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=False):
@@ -166,7 +167,7 @@ def real_trade():
             raise(ex)
         except Exception as ex:
             # traceback.print_exc()
-            print(ex)
+            logging.exception(ex)
             print('Return to main, Retry')
             error_occured = True
 
