@@ -72,7 +72,7 @@ def plot(data: Data, policy: Policy, state: AccountState):
     fig.plot(plot_candle = data.len()<=1100, 
              points      = policy.get_plot_points(data), 
              earn_point  = earn_point,
-             mas= [3, 10])
+             mas= [3, 10, 60])
 
 
 def final_log(data: Data, policy: Policy, state: AccountState):
@@ -199,7 +199,7 @@ def simulated_trade():
     # frontEn: k_other_points_delta works as the front min delta time
     # exp_name = 'ksol_{}_{}_{}{}'.format(k_same_points_delta, k_other_points_delta, 
     #                                     k_from_latest_point, '_SearchToNow' if search_to_now else '')
-    exp_name = "SellAfter2Step-fixPoint"
+    exp_name = "SellAfter2Step-TH2"
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
@@ -208,10 +208,10 @@ def simulated_trade():
                 # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
-                # num=100000, is_futures=is_futures)
-                # start_str='2023-06-21 8:00:00 UTC+8', end_str='2023-06-21 9:30:00 UTC+8', is_futures=is_futures)
-                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
+                # num=1000, is_futures=is_futures)
+                # start_str='2023-07-16 20:00:00 UTC+8', end_str='2023-07-16 23:30:00 UTC+8', is_futures=is_futures)
+                start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
+                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
 
     print('Loading data finished')
 

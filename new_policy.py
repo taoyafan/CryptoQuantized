@@ -527,14 +527,18 @@ class PolicySwing(PolicyBreakThrough):
     def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
         super().__init__(state, time, log_en, analyze_en, policy_private_log, **kwargs)
         self.can_buy = False
-        self.bottom_ordered = True
+        self.can_sell = False
+
+        self.new_bottom = False
         self.new_top = False
+        
         self.last_time = time
         self.last_close = 0.0
+        self.last_open = 0.0
         self.sell_order_valid_until = np.inf
         self.buy_order_valid_until = np.inf
         self.atr = MAs([10, 60])
-        self.aer = MAs([3, 10])
+        self.aer = MAs([3, 10, 60])
         self.ma = MAs([3, 10, 60])
         self.fee = kwargs['fee']
         self.last_ma300 = 0
@@ -567,22 +571,182 @@ class PolicySwing(PolicyBreakThrough):
         last_top_temp    = self.last_top
         last_bottom_temp = self.last_bottom
         self.last_time   = timestamp
+        self.last_open   = self.last_close  # Use last open to replace open
         self.last_close  = close
 
         super().update(high, low, close, volume, timestamp)
 
         
         if (self.can_buy == True and 
-            self.highs[-1] > self.last_top  # Can not buy after break up
+            self.highs[-1] > self._buy_price(self.last_top)  # Can not buy after break up
         ):
             self.can_buy = False
         
+        if (self.can_sell == True and 
+            self.lows[-1] < self.last_bottom  # Can not sell after break down
+        ):
+            self.can_sell = False
+
         # Clear break up / down if top or bottom changed.
         if last_top_temp != self.last_top:
             self.can_buy = True
             self.new_top = True
+
         if last_bottom_temp != self.last_bottom:
-            self.bottom_ordered = False
+            self.can_sell   = True
+            self.new_bottom = True
+
+    def _buy_price(self, top):
+        if top % 1 < 0.05:
+            buy_price = top // 1 + 0.02
+        else:
+            buy_price = top // 1 + 1.02
+        return buy_price
+    
+    def _price_atr60(self, atr60, price):
+        return (price / self.last_close - 1) / atr60
+
+    # AER < 0, In case buying on the short trend
+    def _buy_skip_cond1(self):
+        atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
+        
+        def price_atr60(price):
+            nonlocal atr60
+            return (price / self.last_close - 1) / atr60
+
+        # Get MA condition
+        # ma10_atr60 = price_atr60(self.ma.get_ma(10).mean)
+
+        # Get AER10 condition
+        aer_10 = self.aer.get_ma(10).mean
+        aer_60 = self.aer.get_ma(60).mean
+        aer10_cond = aer_10 <= 0
+        top_step_aer60_cond = aer_60 > 0.002
+        atr60_aer60_cond = aer_60 < 0
+
+        # Get top by atr60
+        top = self.last_top
+        top_atr60 = price_atr60(top)
+        # ll_top_atr60 = price_atr60(self.ll_top)
+        step_after_top = (self.last_time - self.last_top_time) // 60000
+        
+        top_cond = top_atr60 > 0.5
+        atr60_top_cond = top_atr60 > 1.1
+        top_step_cond = step_after_top > 1 
+        # ll_top_cond = top_atr60 > 1.8
+        
+        # Get bottom by atr60
+        if len(self.lows) > self.front_threshold:
+            if self.finding_bottom:
+                bottom = np.min(self.lows[self.front_threshold:])
+                ll_bottom = self.last_bottom
+                i_min = np.argmin(self.lows[self.front_threshold:]) + self.front_threshold
+                step_after_bottom = len(self.lows) - 1 - i_min
+            else:
+                bottom = self.last_bottom
+                ll_bottom = self.ll_bottom
+                step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
+            
+            bottom_atr60 = price_atr60(bottom)
+            # ll_bottom_atr60 = price_atr60(ll_bottom)
+
+            bottom_cond = bottom_atr60 > -3
+            # ll_bottom_cond = ll_bottom_atr60 > -3
+            # bottom_step_cond = step_after_bottom < 6.5
+            top_bottom_step_cond = step_after_bottom > 3
+        else:
+            bottom_cond = False
+            # ll_bottom_cond = False
+            top_bottom_step_cond = False
+
+        # Open, Low
+        open_atr60 = price_atr60(self.last_open) # Use last close to replace open
+        open_cond = open_atr60 < 0.8
+        
+        # TR
+        # tr = self.highs[-1] - self.lows[-1] + 0.000001
+        # tr_atr60 = price_atr60(tr)
+        # tr_cond = tr_atr60 < 2
+        atr60_cond = atr60 < 0.0008 
+
+        can_skip = (aer10_cond and bottom_cond and open_cond and top_cond and 
+                    (top_step_cond or top_step_aer60_cond) and
+                    (atr60_cond or atr60_top_cond or atr60_aer60_cond))
+        
+        if can_skip:
+            self._log(f"{milliseconds_to_date(self.account_state.get_timestamp())}: -- Cond 1 pass, skip")
+        
+        return can_skip
+
+    # Too top, don't buy
+    def _buy_skip_cond2(self):
+        atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
+        
+        def price_atr60(price):
+            nonlocal atr60
+            return (price / self.last_close - 1) / atr60
+        
+        # Get AER10 condition
+        aer_10 = self.aer.get_ma(10).mean
+        aer10_cond = aer_10 > 0.15
+
+        # MA3, MA60
+        ma3_atr60 = price_atr60(self.ma.get_ma(3).mean)
+        ma60_atr60 = price_atr60(self.ma.get_ma(60).mean)
+        ma3_cond = ma3_atr60 < 0
+        ma60_cond = ma60_atr60 < -1 or ma60_atr60 > 0
+
+        # Top cond
+        top_atr60 = price_atr60(self.last_top)
+        ll_top_atr60 = price_atr60(self.ll_top)
+        step_after_top = (self.last_time - self.last_top_time) // 60000
+        
+        top_cond = top_atr60 > 1
+        ll_top_cond = ll_top_atr60 < 0
+
+        # Step after bottom
+        step_after_bottom = 0
+        if len(self.lows) > self.front_threshold:
+            if self.finding_bottom:
+                bottom = np.min(self.lows[self.front_threshold:])
+                ll_bottom = self.last_bottom
+                i_min = np.argmin(self.lows[self.front_threshold:]) + self.front_threshold
+                step_after_bottom = len(self.lows) - 1 - i_min
+            else:
+                bottom = self.last_bottom
+                ll_bottom = self.ll_bottom
+                step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
+
+            bottom_atr60 = price_atr60(bottom)
+            ll_bottom_atr60 = price_atr60(ll_bottom)
+            ll_l_bottom_atr60 = ll_bottom_atr60 - bottom_atr60
+            ll_l_bottom_cond = ll_l_bottom_atr60 < 0.2
+        else:
+            ll_l_bottom_cond = False
+
+        # Open, high cond
+        open_atr60 = price_atr60(self.last_open) # Use last close to replace open
+        open_cond = open_atr60 < 0
+
+        high_atr60 = price_atr60(self.highs[-1])
+        high_cond = high_atr60 < 0.6
+
+        # Is up
+        is_up_cond = self.finding_bottom
+
+        # Cycle step condition
+        cycle_step = step_after_top - step_after_bottom
+        assert cycle_step >= 0
+        cycle_step_cond = cycle_step < 3.5 or cycle_step > 6.5
+
+        can_skip = ((is_up_cond or ma3_cond) and ma60_cond and open_cond and 
+                    top_cond and high_cond and 
+                    ll_top_cond and cycle_step_cond and ll_l_bottom_cond)
+        
+        if can_skip:
+            self._log(f"{milliseconds_to_date(self.account_state.get_timestamp())}: -- Cond 2 pass, skip")
+        
+        return can_skip
 
     def _get_params_buy(self, new_step=False) -> Optional[Order]:
         new_order = None
@@ -615,80 +779,7 @@ class PolicySwing(PolicyBreakThrough):
                  self.buy_order.is_alive() == False or 
                  self.buy_order.not_entered())
             ):
-
-                atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
-                atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
-
-                top = self.last_top
-                
-                def price_atr60(price):
-                    nonlocal atr60
-                    return (price / self.last_close - 1) / atr60
-
-                # # Get MA condition
-                # ma3_atr60 = price_atr60(self.ma.get_ma(3).mean)
-                ma10_atr60 = price_atr60(self.ma.get_ma(10).mean)
-                # ma60_atr60 = price_atr60(self.ma.get_ma(60).mean)
-
-                # ma3_cond = ma3_atr60 > -0.7
-                # ma10_cond = ma10_atr60 > -0.2
-                # ma60_cond = ma60_atr60 < 3.4
-
-                # # Get AER10 condition
-                # aer_3 = self.aer.get_ma(3).mean
-                aer_10 = self.aer.get_ma(10).mean
-                # aer3_cond = aer_3 < 0.05
-                # aer10_cond = aer_10 < 0.05
-
-                # # Get top by atr60
-                # top_atr60 = price_atr60(top)
-                # ll_top_atr60 = price_atr60(self.ll_top)
-                # # step_after_top = (self.last_time - self.last_top_time) // 60000
-                
-                # top_cond = top_atr60 > 1
-                # ll_top_cond = top_atr60 > 1.8
-                
-                # # Get top by atr60
-                # if len(self.lows) > self.front_threshold:
-                #     if self.finding_bottom:
-                #         bottom = np.min(self.lows[self.front_threshold:])
-                #         ll_bottom = self.last_bottom
-                #         i_min = np.argmin(self.lows[self.front_threshold:]) + self.front_threshold
-                #         step_after_bottom = len(self.lows) - 1 - i_min
-                #     else:
-                #         bottom = self.last_bottom
-                #         ll_bottom = self.ll_bottom
-                #         step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
-                    
-                #     bottom_atr60 = price_atr60(bottom)
-                #     ll_bottom_atr60 = price_atr60(ll_bottom)
-
-                #     # bottom_cond = bottom_atr60 > -2
-                #     ll_bottom_cond = ll_bottom_atr60 > -3
-                #     # bottom_step_cond = step_after_bottom < 6.5
-                # else:
-                #     ll_bottom_cond = False
-
-                # # Cycle step condition
-                # # cycle_step = step_after_top - step_after_bottom
-                # # assert cycle_step >= 0
-                # # cycle_step_cond = cycle_step != 7
-
-                # # Low, TR condition
-                # low_atr60 = price_atr60(self.lows[-1])
-                # low_cond = low_atr60 < -0.24
-                
-                # tr = self.highs[-1] - self.lows[-1] + 0.000001
-                # tr_atr60 = price_atr60(tr)
-                # tr_cond = tr_atr60 < 2
-
-                # Buy price
-                if top % 1 < 0.2:
-                    buy_price = top // 1 + 0.02
-                else:
-                    buy_price = top // 1 + 1.02
-
-
+                buy_price = self._buy_price(self.last_top)
 
                 # sell_price = buy_price * (1 + 5 * atr60) # np.mean([earn_tr10, earn_tr60, earn_er10, earn_bottom, earn_ma3])
                 # stop_price = buy_price * (1 - 2 * atr60)
@@ -703,12 +794,8 @@ class PolicySwing(PolicyBreakThrough):
                 leverage = min(5, int(leverage // 1))
                 leverage = max(1, leverage)
 
-                # can_skip = (ma3_cond and ma10_cond and ma60_cond and top_cond
-                #     and ll_top_cond and ll_bottom_cond and low_cond and tr_cond and aer10_cond
-                #     and aer3_cond)
-                
                 # if rw > 0 and rl > 0 and leverage > 0: # and (not can_skip)
-                if (leverage > 0 and aer_10 > 0):
+                if (leverage > 0 and not (self._buy_skip_cond1() or self._buy_skip_cond2())):
                     order = None
                     
                     # There is a same bought order flying
@@ -731,7 +818,7 @@ class PolicySwing(PolicyBreakThrough):
                     if order:
                         # To make sure not move the order to finished
                         order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=int(1.5*60000))
-                        # order.add_exit(stop_price, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000) # , lock_time=1*60000
+                        # order.add_exit(self.last_bottom, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000) # , lock_time=1*60000
                         # order.add_exit(sell_price, Order.ABOVE, "Long exit", can_be_sent=True)
                     
 
@@ -746,12 +833,94 @@ class PolicySwing(PolicyBreakThrough):
         return new_order
     
     def _get_params_sell(self, new_step=False) -> Optional[Order]:
-        order = None
-        return order
+        return None
+        new_order = None
+
+        # On each step
+        if (new_step and
+            self.atr.get_ma(60).valid()
+        ):
+            open_time = self.account_state.get_timestamp()
+
+            # 1. Whether old order need cancel ?
+            #    -- order exist, not finished, not entered, exceed the valid time.
+            need_cancel_exist = ((self.sell_order is not None) and 
+                                 (self.sell_order.not_entered()) and
+                                 (open_time > self.sell_order_valid_until))
+
+            # Need to cancel when new bottom found
+            if self.new_bottom:
+                # Each bottom only order once
+                self.new_bottom = False
+
+                if self.sell_order is not None and self.sell_order.not_entered():
+                    need_cancel_exist = True
+
+            
+            # 2. Whether create new order ? if enter info of new is same as the order need canceled, then don't cancel it
+            if ((self.can_sell == True) and
+                # No alive sell order or it is not entered
+                (self.sell_order == None or 
+                 self.sell_order.is_alive() == False or 
+                 self.sell_order.not_entered())
+            ):
+
+                atr60 = self.atr.get_ma(60).mean / self.last_close + 0.000001
+                atr10 = self.atr.get_ma(10).mean / self.last_close + 0.000001
+
+                bottom = self.last_bottom
+                
+                def price_atr60(price):
+                    nonlocal atr60
+                    return (price / self.last_close - 1) / atr60
+
+                aer_10 = self.aer.get_ma(10).mean
+
+                # sell price
+                sell_price = bottom
+
+                leverage = 5
+                leverage = min(5, int(leverage // 1))
+                leverage = max(1, leverage)
+
+                if (leverage > 0 and aer_10 < 0): #
+                    order = None
+                    
+                    # There is a same bought order flying
+                    if (self.sell_order and 
+                        self.sell_order.is_alive() and
+                        self.sell_order.entered_info.price == sell_price 
+                    ):  
+                        assert self.sell_order.not_entered(), "The order should not entered"
+                        # Same enter info, only change exit info.
+                        order = self.sell_order
+                        order.clear_exit()
+                        need_cancel_exist = False
+
+                    else:
+                        # No same flying order, create new
+                        order = Order(OrderSide.SELL, sell_price, Order.BELLOW, 'Short', 
+                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0)
+                        new_order = order
+
+                    if order:
+                        # To make sure not move the order to finished
+                        order.add_exit(0, Order.ABOVE, "Short timeout", lock_time=int(1.5*60000))
+                    
+
+                    self.sell_order_valid_until = open_time + 0.9 * 60000      # current one step
+
+            
+            # 3. Cancel old order.
+            if need_cancel_exist:
+                assert (self.sell_order is not None)
+                self.account_state.cancel_order(self.sell_order)
+
+        return new_order
 
     @property
     def buy_reasons(self) -> Set[str]:
-        return {'Long', 'Short exit'}
+        return {'Long', 'Short exit', 'Short stop', 'Short timeout'}
 
     @property
     def sell_reasons(self) -> Set[str]:
