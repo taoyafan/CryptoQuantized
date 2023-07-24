@@ -283,8 +283,8 @@ class AdaptorBinance(Adaptor):
 
                 if self._is_order_filled(order_info) or partially_filled:
                     if partially_filled:
-                        order_info = self._cancel_order(order_id=entered_info.order_id)
                         print(f"Partially filled: {order_info}")
+                        order_info = self._cancel_order(order_id=entered_info.order_id)
 
                     time = self._get_order_time(order_info)
                     assert time, 'time is None'
@@ -774,7 +774,7 @@ class AdaptorBinance(Adaptor):
 
                 if not self.is_futures:
                     kwargs['isIsolated'] = 'TRUE'
-                    kwargs['sideEffectType'] = 'MARGIN_BUY' if kwargs['side'] == 'BUY' else 'AUTO_REPAY'
+                    kwargs['sideEffectType'] = 'MARGIN_BUY' if kwargs['side'] == 'BUY' else 'NO_SIDE_EFFECT'
 
                 order_info = getattr(self.client, method)(**kwargs)
                 self.order_info = order_info
