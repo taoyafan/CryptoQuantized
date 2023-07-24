@@ -36,7 +36,7 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
             # Wait a new price
             new_price = adaptor.get_price()
             while new_price == price:
-                time.sleep(0.02) # Update per 20 ms
+                time.sleep(0.1) # Update per 100 ms
                 new_price = adaptor.get_price()
             price = new_price
             new_step = False
@@ -215,7 +215,7 @@ def simulated_trade():
 
     print('Loading data finished')
 
-    fee = 0.00001
+    fee = 0.00002
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
                                leverage=1, data=data, fee=fee, log_en=log_en)
 
@@ -276,6 +276,7 @@ if __name__ == "__main__":
         file_path = os.path.join(file_path,'log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
         print('Log to file: {}'.format(file_path))
         sys.stdout = Logger(file_path)
+        sys.stderr = sys.stdout
         real_trade()
     else:
         simulated_trade()
