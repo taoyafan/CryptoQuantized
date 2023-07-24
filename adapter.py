@@ -277,18 +277,26 @@ class AdaptorBinance(Adaptor):
             elif state == Order.State.SENT:
                 entered_info = order.entered_info
                 # It will update self.order_info
-                order_info = self._get_order(order_id=entered_info.order_id)
+                order_id = entered_info.order_id
+                order_info = self._get_order(order_id=order_id)
 
                 partially_filled = self._is_order_partially_filled(order_info)
 
                 if self._is_order_filled(order_info) or partially_filled:
                     if partially_filled:
-                        print(f"Partially filled: {order_info}")
-                        order_info = self._cancel_order(order_id=entered_info.order_id)
+                        self._log(f"Partially filled: {order_info}")
+                        time.sleep(1)   # Sleep and try again
 
-                    time = self._get_order_time(order_info)
-                    assert time, 'time is None'
-                    entered_info.executed(self._get_exe_price(order_info), time)
+                        order_info = self._get_order(order_id=order_id)
+                        if self._is_order_partially_filled(order_info):
+                            order_info = self._cancel_order(order_id=order_id)
+                            self._log(f"Partially filled after cancel: {order_info}")
+                        else:
+                            self._log("Filled after 1 second")
+
+                    order_time = self._get_order_time(order_info)
+                    assert order_time, 'time is None'
+                    entered_info.executed(self._get_exe_price(order_info), order_time)
                     state = Order.State.ENTERED
 
             elif state == Order.State.ENTERED or state == Order.State.EXIT_SENT:
@@ -307,9 +315,9 @@ class AdaptorBinance(Adaptor):
                             order_info = self._get_order(order_id=info.order_id)
 
                             if self._is_order_filled(order_info):
-                                time = self._get_order_time(order_info)
-                                assert time, 'time is None'
-                                info.executed(self._get_exe_price(order_info), time)
+                                order_time = self._get_order_time(order_info)
+                                assert order_time, 'time is None'
+                                info.executed(self._get_exe_price(order_info), order_time)
                                 self._update_account_info()
                                 traded = True
                                 break
@@ -407,7 +415,7 @@ class AdaptorBinance(Adaptor):
         
         # 2. If order_id is not none, cancel this order
         if id_need_cancel is not None:
-            exe_amount = self._cancel_order(order_id=id_need_cancel)
+            exe_amount = float(self._cancel_order(order_id=id_need_cancel)['executedQty'])
             
             # Already exe
             if exe_amount > 0:
@@ -472,8 +480,8 @@ class AdaptorBinance(Adaptor):
                 
                 if not self._is_order_filled(conflict_order_info):
                     # If it is not filled, cancel it
-                    exe_amout = self._cancel_order(order_id=conflict_id)
-                    assert exe_amout == 0, 'Cancel failed'
+                    exe_amount = float(self._cancel_order(order_id=conflict_id)['executedQty'])
+                    assert exe_amount == 0, 'Cancel failed'
                 else:
                     # If it is filled, we can not create new.
                     can_create_new = False
@@ -625,7 +633,7 @@ class AdaptorBinance(Adaptor):
                     # self._log('executed_amount is {}, not equal to left_quantity {}, Cancel the order'.format(
                     #     executed_amount, left_quantity))
                     try:
-                        executed_amount = self._cancel_order(order['orderId'])
+                        executed_amount = float(self._cancel_order(order['orderId'])['executedQty'])
                     except BinanceAPIException:
                         # Order just executed
                         executed_amount = left_quantity
@@ -803,7 +811,7 @@ class AdaptorBinance(Adaptor):
                 
         return order_info
 
-    def _cancel_order(self, order_id = None, client_order_id = None) -> float:
+    def _cancel_order(self, order_id = None, client_order_id = None):
         assert order_id or client_order_id, 'No order id'
 
         try:
@@ -824,7 +832,7 @@ class AdaptorBinance(Adaptor):
         except BinanceAPIException:
             order_info = self._get_order(order_id, client_order_id)
 
-        return float(order_info['executedQty'])
+        return order_info
 
     def _set_leverage(self, leverage: Optional[int]=None):
         assert self.is_futures, 'Only support futures'
@@ -900,7 +908,7 @@ class AdaptorBinance(Adaptor):
                 print(str(ex) + ', when calling {}, params: {}'.format(method, kwargs))
                 call_cnt += 1
                 # If stilled failed after 3 times calling, raise again
-                if call_cnt > 3:
+                if call_cnt >= 3:
                     print('Still failed after 3 times calling, stop calling')
                     raise(ex)
                 else:
