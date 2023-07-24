@@ -669,10 +669,11 @@ class PolicySwing(PolicyBreakThrough):
         # tr_cond = tr_atr60 < 2
         atr60_cond = atr60 < 0.0008 
 
-        can_skip = (aer10_cond and bottom_cond and open_cond and top_cond and 
-                    (top_step_cond or top_step_aer60_cond) and
-                    (atr60_cond or atr60_top_cond or atr60_aer60_cond))
-        
+        # can_skip = (aer10_cond and bottom_cond and open_cond and top_cond and 
+        #             (top_step_cond or top_step_aer60_cond) and
+        #             (atr60_cond or atr60_top_cond or atr60_aer60_cond))
+        can_skip = (aer10_cond)
+
         if can_skip:
             self._log(f"{milliseconds_to_date(self.account_state.get_timestamp())}: -- Cond 1 pass, skip")
         
@@ -812,12 +813,12 @@ class PolicySwing(PolicyBreakThrough):
                     else:
                         # No same flying order, create new
                         order = Order(OrderSide.BUY, buy_price, Order.ABOVE, 'Long', 
-                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0)
+                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0.0001)
                         new_order = order
 
                     if order:
                         # To make sure not move the order to finished
-                        order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=int(1.5*60000))
+                        order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=int(1.9*60000))
                         # order.add_exit(self.last_bottom, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000) # , lock_time=1*60000
                         # order.add_exit(sell_price, Order.ABOVE, "Long exit", can_be_sent=True)
                     
