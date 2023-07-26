@@ -309,7 +309,7 @@ class PolicyBreakThrough(Policy):
                 self.finding_bottom = True
 
                 highest = 0
-                i_max = 0
+                i_max = len(self.highs) - 1
                 for i in range(self.front_threshold, len(self.highs)):
                     if self.highs[i] > self.highs[i-1] and self.highs[i] > highest:
                         highest = self.highs[i]
