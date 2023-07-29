@@ -30,6 +30,9 @@ class RingBuffer:
 
         return out_data
     
+    def get_latest_data(self):
+        return self.buffer[self.idx - 1]
+        
     def get_previous_data(self, previous_step: int) -> int:
         assert(previous_step >= 0 and previous_step < self.size)
         # previous_step: 0 Means current data.
@@ -68,6 +71,9 @@ class MA:
         if insert_to_buffer:
             self.buffer.insert(new_data)
     
+    def get_latest_data(self):
+        return self.buffer.get_latest_data()
+
     def valid(self) -> bool:
         return self.buffer.num >= self.level
 
@@ -87,6 +93,9 @@ class MAs:
             self.mas[level].update(data)
         
         self.buffer.insert(data)
+    
+    def get_latest_data(self):
+        return self.buffer.get_latest_data()
     
     def get_ma(self, level: int):
         return self.mas[level]
