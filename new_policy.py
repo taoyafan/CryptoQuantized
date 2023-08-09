@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Optional, List, Set
@@ -139,9 +140,13 @@ class Policy(ABC):
             self.account_state.update_pos()
             
             # Update might failed, then update again
-            if previous_pos_amount == self.account_state.pos_amount:
+            retry_cnt = 0
+            while previous_pos_amount == self.account_state.pos_amount and retry_cnt < 3:
+                time.sleep(1)
+                retry_cnt += 1
                 self.account_state.update_pos()
-                assert previous_pos_amount != self.account_state.pos_amount, "Updata account state failed"
+                
+            assert previous_pos_amount != self.account_state.pos_amount, "Updata account state failed"
 
             self.account_state.update_analyzed_info()
 
@@ -815,12 +820,13 @@ class PolicySwing(PolicyBreakThrough):
                 # rl = possible_loss / buy_price + 2 * self.fee
                 # leverage = p / rl - (1 - p) / rw
                 # leverage = 0.001 / atr60
-                leverage = 5
+                leverage = 1
                 leverage = min(5, int(leverage // 1))
                 leverage = max(1, leverage)
 
                 # if rw > 0 and rl > 0 and leverage > 0: # and (not can_skip)
                 # if (leverage > 0):
+                # if (leverage > 0 and self._buy_skip_cond1()):
                 if (leverage > 0 and not (self._buy_skip_cond1() or self._buy_skip_cond2())):
                     order = None
                     
@@ -838,7 +844,7 @@ class PolicySwing(PolicyBreakThrough):
                     else:
                         # No same flying order, create new
                         order = Order(OrderSide.BUY, buy_price, Order.ABOVE, 'Long', 
-                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0.0001)
+                            open_time, leverage=leverage, can_be_sent=True, loss_allowed=0.00003)
                         new_order = order
 
                     if order:

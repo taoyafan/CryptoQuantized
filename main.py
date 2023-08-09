@@ -163,8 +163,6 @@ def real_trade():
             main_loop(state, adaptor, policy, log_en)
         except KeyboardInterrupt:
             break
-        except AssertionError as ex:
-            raise(ex)
         except Exception as ex:
             # traceback.print_exc()
             logging.exception(ex)
@@ -205,13 +203,13 @@ def simulated_trade():
     symbol = token_name+usd_name
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # Test
-                # start_str="2022/06/30 14:00 UTC+8", is_futures=is_futures)
+                # start_str="2023-07-29 06:04:59.999000", is_futures=is_futures) # Note no UTC+8
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
-                # num=6000, is_futures=is_futures)
+                # num=40000, is_futures=is_futures)
                 # start_str='2023-06-24 1:30:00 UTC+8', end_str='2023-06-24 3:00:00 UTC+8', is_futures=is_futures)
-                start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                # end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
+                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
+                end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
 
     print('Loading data finished')
 
@@ -273,7 +271,8 @@ if __name__ == "__main__":
         # Log to file
         path = os.getcwd()
         file_path = os.path.join(path,'log')
-        file_path = os.path.join(file_path,'log_{}.txt'.format(milliseconds_to_date(int(time.time())*1000).replace(':', '-')))
+        file_path = os.path.join(file_path,'log_{}.txt'.format(
+            milliseconds_to_date(int(time.time())*1000).replace(':', '-').replace(' ', '_')))
         print('Log to file: {}'.format(file_path))
         sys.stdout = Logger(file_path)
         sys.stderr = sys.stdout

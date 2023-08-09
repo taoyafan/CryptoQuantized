@@ -547,6 +547,7 @@ class AdaptorBinance(Adaptor):
         time_minute = self._get_time_minute()
         if time_minute > self.time_minute:
             self.time_minute = time_minute
+            time.sleep(0.2) # make sure data from server is ready.
             self.data.update(end_ms=time_minute*60000-1)
             return True
         else:
@@ -1005,7 +1006,7 @@ class AdaptorSimulator(Adaptor):
                 self.price_last_trade = trade_price
 
             if reduce_only == False:
-                balance = self._balance * 0.95
+                balance = self._balance
                 self.leverage = leverage
                 pos_amount = self.leverage * balance / trade_price
                 # pos_amount must be an integer multiple of self.token_min_pos
