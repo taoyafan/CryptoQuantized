@@ -1,0 +1,1 @@
+python3 Strategy_59Second.py > out.file 2>&1 &
