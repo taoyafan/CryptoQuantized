@@ -420,6 +420,7 @@ class AdaptorBinance(Adaptor):
             # Already exe
             if exe_amount > 0:
                 canceled = False
+                print(f"Cancel order failed, execution amout {exe_amount}")
             else:
                 canceled = True
 
@@ -908,9 +909,9 @@ class AdaptorBinance(Adaptor):
                 # Due to network, Try again later
                 print(str(ex) + ', when calling {}, params: {}'.format(method, kwargs))
                 call_cnt += 1
-                # If stilled failed after 3 times calling, raise again
-                if call_cnt >= 3:
-                    print('Still failed after 3 times calling, stop calling')
+                # If stilled failed after 2 times calling, raise again
+                if call_cnt >= 2:
+                    print('Still failed after 2 times calling, stop calling')
                     raise(ex)
                 else:
                     time.sleep(1)

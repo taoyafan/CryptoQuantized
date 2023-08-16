@@ -76,17 +76,18 @@ class AccountState:
         assert order in self.orders, "Can not cancel the order which is not recorded"
 
         canceled = self.adaptor.cancel_order(order)
-        
-        if self.log_en:
-            enter_info = order.entered_info
-            print(f"{self.get_time_str()}: Cancel order: {enter_info.reason} expect price: {enter_info.price:.4f}")
 
         if canceled == False:
             # Traded happend, can not cancel, update state to next traded
             self.adaptor.update_order(order)
-        
-        self.removed_orders.add(order)
-        return True
+        else:
+            if self.log_en:
+                enter_info = order.entered_info
+                print(f"{self.get_time_str()}: Cancel order: {enter_info.reason} expect price: {enter_info.price:.4f}")
+
+            self.removed_orders.add(order)
+
+        return canceled
 
     def update(self) -> None:
         # Update orders
