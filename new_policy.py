@@ -9,7 +9,7 @@ import os
 from base_types import OrderSide, IdxValue, TradeInfo, Order, OptState, Recoverable
 from adapter import Adaptor
 from account_state import AccountState
-from utils import date_to_milliseconds, milliseconds_to_date, MAs
+from utils import date_to_milliseconds, milliseconds_to_date, MAs, RingBuffer
 from plot import PricePlot
 from data import Data
 
@@ -162,6 +162,9 @@ class Policy(ABC):
             return IdxValue(self.sell_state.points_idx, self.sell_state.points_actual_price)
         else:
             raise ValueError
+    
+    def get_atr60(self):
+        return None
 
     def log_analyzed_info(self):
         if self.analyze_en:
@@ -217,9 +220,9 @@ class Policy(ABC):
 
         return points
 
-    def _log(self, s=''):
+    def _log(self, s='', end='\n'):
         if self.log_en:
-            print(s)
+            print(s, end=end)
 
 # Buy when break through prior high
 # Sell when break through prior low
@@ -293,37 +296,23 @@ class PolicyBreakThrough(Policy):
             # 1). Check whether newest data break last confirmed point
             # If finding bottom but get new top, then select the lowest low as bottom
             if self.finding_bottom and self.highs[-1] > self.last_top:
-                self.finding_bottom = False
-
-                lowest = np.inf
-                i_min = len(self.lows) - 1
-                for i in range(self.front_threshold, len(self.lows)):
-                    if self.lows[i] < self.lows[i-1] and self.lows[i] < lowest:
-                        lowest = self.lows[i]
-                        i_min = i
-                        
+                i_min = self._get_temp_bottom_idx()
                 self.last_checked_time = self.point_times[i_min]
                 self._update_points(i_min, timestamp, found_top = False, found_bottom = True)
                 
                 # We need to check this point for bottom too
                 self.last_checked_time -= 60000
+                self.finding_bottom = False
 
             # If finding top but get new bottom, then select the highest high as top
             elif (self.finding_bottom == False) and self.lows[-1] < self.last_bottom:
-                found_top = True
-                self.finding_bottom = True
-
-                highest = 0
-                i_max = len(self.highs) - 1
-                for i in range(self.front_threshold, len(self.highs)):
-                    if self.highs[i] > self.highs[i-1] and self.highs[i] > highest:
-                        highest = self.highs[i]
-                        i_max = i
+                i_max = self._get_temp_top_idx()
                 self.last_checked_time = self.point_times[i_max]
                 self._update_points(i_max, timestamp, found_top = True, found_bottom = False)
                 
                 # We need to check this point for top too
                 self.last_checked_time -= 60000
+                self.finding_bottom = True
 
             # 2). Check data with threshold
             # For each checked time, update threshold, confirmed time
@@ -384,17 +373,47 @@ class PolicyBreakThrough(Policy):
     def _get_params_sell(self, new_step=False) -> Order:
         return Order(OrderSide.SELL, self._get_latest_bottom(), Order.BELLOW, 'Default', # type: ignore
             self.account_state.get_timestamp())
+    
+    def _get_temp_bottom_idx(self):
+        assert self.finding_bottom, "Shoud finding bottom"
+        lowest = np.inf
+        i_min = len(self.lows) - 1
+        for i in range(self.front_threshold, len(self.lows)):
+            if self.lows[i] < self.lows[i-1] and self.lows[i] < lowest:
+                lowest = self.lows[i]
+                i_min = i
+
+        return i_min
+
+    def _get_temp_top_idx(self):
+        assert self.finding_bottom == False, "Shoud finding top"
+        highest = 0
+        i_max = len(self.highs) - 1
+        for i in range(self.front_threshold, len(self.highs)):
+            if self.highs[i] > self.highs[i-1] and self.highs[i] > highest:
+                highest = self.highs[i]
+                i_max = i
+
+        return i_max
+
+    def _get_latest_bottom(self):
+        if self.finding_bottom:
+            i_min = self._get_temp_bottom_idx()
+            bottom = self.lows[i_min]
+        else:
+            bottom = self.last_bottom
+
+        return bottom
 
     def _get_latest_top(self):
-        idx = self.front_threshold
-        fake_top: float = np.max(self.highs[idx:]) if len(self.highs) > idx else 0 # type: ignore
-        return max(self.last_top, fake_top)
-    
-    def _get_latest_bottom(self):
-        idx = self.front_threshold
-        fake_bottom: float = np.min(self.lows[idx:]) if len(self.lows) > idx else float('inf') # type: ignore
-        return min(self.last_bottom, fake_bottom)
+        if self.finding_bottom == False:
+            i_max = self._get_temp_top_idx()
+            top = self.highs[i_max]
+        else:
+            top = self.last_top
 
+        return top
+    
     def save(self, file_loc: str, symbol: str, start, end):
         if self.analyze_en:
             vertices = {
@@ -542,13 +561,23 @@ class PolicySwing(PolicyBreakThrough):
         self.last_open = 0.0
         self.sell_order_valid_until = np.inf
         self.buy_order_valid_until = np.inf
-        self.atr = MAs([10, 60])
-        self.aer = MAs([3, 10, 20, 60])
-        self.aer_abs = MAs([10])
+        self.atr = MAs([3, 10, 60])
+        self.aer = MAs([3, 11, 21, 60])
+        self.aer_abs = MAs([11, 21, 60])
         self.ma = MAs([3, 10, 60])
+        self.ma10_buffer = RingBuffer(11)
+        self.std10abs = MAs([10, 60])
         self.fee = kwargs['fee']
         self.last_ma300 = 0
+        
+        if self.analyze_en:
+            self.atr60_all = np.empty(0)
 
+    def get_atr60(self):
+        if self.analyze_en:
+            return self.atr60_all
+        else:
+            return None
 
     def reset(self):
         self.sell_order_valid_until = np.inf
@@ -575,6 +604,11 @@ class PolicySwing(PolicyBreakThrough):
         self.aer.update(er)
         self.aer_abs.update(er if er > 0 else -er)
         self.ma.update(close)
+        self.ma10_buffer.insert(self.ma.get_ma(10).mean)
+        self.std10abs.update(abs(close - self.ma.get_ma(10).mean))
+
+        if self.analyze_en:
+            self.atr60_all = np.append(self.atr60_all, self.atr.get_ma(60).mean / close)
 
         last_top_temp    = self.last_top
         last_bottom_temp = self.last_bottom
@@ -610,9 +644,6 @@ class PolicySwing(PolicyBreakThrough):
         else:
             buy_price = top // 1 + 1.02
         return buy_price
-    
-    def _price_atr60(self, atr60, price):
-        return (price / self.last_close - 1) / atr60
 
     # AER < 0, In case buying on the short trend
     def _buy_skip_cond1(self):
@@ -708,6 +739,141 @@ class PolicySwing(PolicyBreakThrough):
         
         return can_skip
 
+    # Filter bad first and then filter good of them
+    def _buy_skip_bad_good(self):
+        top = self.last_top     # It must be the confirmed top
+        price_base = top
+        
+        # Base params ----------------------------------------------------------------
+
+        # - ATR
+        atr60 = self.atr.get_ma(60).mean / price_base
+        atr3 = self.atr.get_ma(3).mean / price_base / atr60
+        atr10 = self.atr.get_ma(10).mean / price_base / atr60
+
+        def price_atr60(price):
+            nonlocal atr60
+            return (price / price_base - 1) / atr60
+
+        def d_price_atr60(dprice):
+            nonlocal atr60
+            return dprice / price_base / atr60
+
+        # - AER
+        aer11 = self.aer.get_ma(11).mean
+        aerabs11 = self.aer_abs.get_ma(11).mean
+        aerabs21 = self.aer_abs.get_ma(21).mean
+        aerabs60 = self.aer_abs.get_ma(60).mean
+
+        # - std10abs
+        std10abs10 = d_price_atr60(self.std10abs.get_ma(10).mean)
+        std10abs60 = d_price_atr60(self.std10abs.get_ma(60).mean)
+
+        # Bottom
+        step_after_bottom = 0
+        if len(self.lows) > self.front_threshold:
+            if self.finding_bottom:
+                i_min = self._get_temp_bottom_idx()
+                step_after_bottom = len(self.lows) - 1 - i_min
+            else:
+                step_after_bottom = (self.last_time - self.last_bottom_time) // 60000
+
+        # Get steps
+        step_after_top = (self.last_time - self.last_top_time) // 60000
+        cycle_step = step_after_top - step_after_bottom
+        btm_step_div_top_step = step_after_bottom / step_after_top if step_after_top != 0 else 1
+
+        # Bad condition ----------------------------------------------------------------
+        log_bad = False
+
+        def log_b_cond(cond, str):
+            nonlocal log_bad
+            if cond:
+                if log_bad == False:
+                    log_bad = True
+                    self._log(f"{milliseconds_to_date(self.account_state.get_timestamp())}: -- Skip: ", end='')
+                self._log(str, end='\t')
+            return cond
+        
+        # - low aerabs60
+        b_aerabs60_cond = log_b_cond(aerabs60 < 0.42, f"b_aerabs60_cond pass: {aerabs60 :.3f}")
+
+        # - low aer11
+        b_aer11_cond = log_b_cond(aer11 < 0.03, f"b_aer11_cond pass: {aer11 :.3f}")
+
+        # - ATR60 is too low
+        b_atr60_cond = log_b_cond(atr60 < 0.0003, f"b_atr60_cond pass: {atr60 :.5f}")
+
+        # - low range around ma 10, i.e. No large range around ma.
+        b_std10abs_cond = log_b_cond(std10abs60 < 0.55 or (std10abs60 < 0.8 and std10abs10 < 0.3), 
+                                   f"b_std10abs_cond pass: {std10abs60 :.3f}, {std10abs10 :.3f}")
+
+        # - When cycle step is 1.
+        b_step_cond = log_b_cond(cycle_step == 1, f"step_le1_cond pass: {cycle_step}")
+
+        bad_cond = (b_aerabs60_cond or b_aer11_cond or b_atr60_cond or b_std10abs_cond or b_step_cond)
+        
+        good_cond = False
+        if bad_cond:
+            self._log()
+
+            # Good condition ----------------------------------------------------------------
+            
+            # ATR std
+            atr20arr = self.atr.get_data_arr(20)
+            atrstd20 = d_price_atr60(atr20arr.std())
+            
+            # - close
+            close = price_atr60(self.last_close)
+            # - ma10 inc
+            ma10_inc10 = d_price_atr60(self.ma10_buffer.get_data(0) - self.ma10_buffer.get_data(-10))
+            # - 2 step inc
+            inc_in_2step = -price_atr60(self.last_open)
+            # - ll_top
+            ll_top = price_atr60(self.ll_top)
+            # - ma3
+            ma3 = price_atr60(self.ma.get_ma(3).mean)
+
+            log_good = False
+
+            def log_g_cond(cond, str):
+                nonlocal log_good
+                if cond:
+                    if log_good == False:
+                        log_good = True
+                        self._log(f"\t -- Bypass skip: ", end='')
+                    self._log(str, end='\t')
+                return cond
+            
+            # - TR change a lot in latest 20 cycle
+            g_atrstd20_cond   = log_g_cond((atrstd20 > 0.75) and ((close < -1.8) or (atrstd20 > 1.05)), 
+                                    f"g_atrstd20_cond pass: {atrstd20 :.3f}, {atrstd20 :.3f}")
+            # - high aerabs60
+            g_aerabs60_cond   = log_g_cond((aerabs60 > 0.48) and (ma10_inc10 > -0.95), 
+                                    f"g_aerabs60_cond pass: {aerabs60 :.3f}, {ma10_inc10 :.3f}")
+            # - 2 step increase
+            g_2step_inc_cond  = log_g_cond((inc_in_2step < 0.2) and (btm_step_div_top_step < 0.67), 
+                                    f"g_2step_inc_cond pass: {inc_in_2step :.2f}, {btm_step_div_top_step :.3f}")
+            # - ll top is high
+            g_ll_top_cond     = log_g_cond((ll_top > 2.5) and ((aer11 > -0.01) or (close > -0.5)), 
+                                    f"g_ll_top_cond pass: {ll_top :.2f}, {aer11 :.3f}, {close :.2f}")
+            # - growing not too fast and top is not high
+            g_ma3_cond        = log_g_cond((ma3 > -0.45) and ((cycle_step >= 3) or (close > -0.13)), 
+                                    f"g_ma3_cond pass: {ma3 :.3f}, {cycle_step}, {close :.3f}")
+            # - Cycle step 
+            g_cycle_step_cond = log_g_cond((cycle_step == 1) and ((ma10_inc10 > 1.6) or (atr60 > 0.001)), 
+                                    f"g_cycle_step_cond pass: {cycle_step}, {ma10_inc10 :.3f}, {atr60 :.4f}")
+
+            good_cond = (g_atrstd20_cond or g_aerabs60_cond or g_2step_inc_cond or
+                         g_ll_top_cond or g_ma3_cond or g_cycle_step_cond)
+            
+            if good_cond:
+                self._log()
+        
+        can_skip = (bad_cond and (not good_cond))
+
+        return can_skip
+
     # Too top, don't buy
     def _buy_skip_cond2(self):
         atr60 = self.atr.get_ma(60).mean / self.last_close
@@ -780,7 +946,6 @@ class PolicySwing(PolicyBreakThrough):
 
     def _get_params_buy(self, new_step=False) -> Optional[Order]:
         new_order = None
-
         # On each step
         if (new_step and
             self.atr.get_ma(60).valid()
@@ -824,10 +989,10 @@ class PolicySwing(PolicyBreakThrough):
                 leverage = min(5, int(leverage // 1))
                 leverage = max(1, leverage)
 
-                # if rw > 0 and rl > 0 and leverage > 0: # and (not can_skip)
+                # if rw > 0 and rl > 0 and leverage > 0:
                 # if (leverage > 0):
-                # if (leverage > 0 and self._buy_skip_cond1()):
-                if (leverage > 0 and not (self._buy_skip_cond1() or self._buy_skip_cond2())):
+                if (leverage > 0 and not self._buy_skip_bad_good()):
+                # if (leverage > 0 and not (self._buy_skip_cond1() or self._buy_skip_cond2())):
                     order = None
                     
                     # There is a same bought order flying
@@ -906,7 +1071,7 @@ class PolicySwing(PolicyBreakThrough):
                     nonlocal atr60
                     return (price / self.last_close - 1) / atr60
 
-                aer_10 = self.aer.get_ma(10).mean
+                aer_11 = self.aer.get_ma(11).mean
 
                 # sell price
                 sell_price = bottom
@@ -915,7 +1080,7 @@ class PolicySwing(PolicyBreakThrough):
                 leverage = min(5, int(leverage // 1))
                 leverage = max(1, leverage)
 
-                if (leverage > 0 and aer_10 < 0): #
+                if (leverage > 0): #
                     order = None
                     
                     # There is a same bought order flying
