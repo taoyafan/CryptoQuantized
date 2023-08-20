@@ -29,12 +29,13 @@ class PricePlot:
 
     def plot(self, plot_candle=True, plot_vol=False, datum=None, datum_lines=None, 
              opt_point: OptPoints|None=None, earn_point: IdxValue|None=None, 
-             points: List[Points]|None=None, fig=plt.figure(figsize=(10, 5)),
+             points: List[Points]|None=None, atr60=None, fig=plt.figure(figsize=(10, 5)),
              mas: List[int]=[]):
 
         figure_num = 1
         figure_num += 1 if plot_vol else 0
         figure_num += 1 if earn_point else 0
+        figure_num += 1 if atr60 is not None else 0
         if figure_num == 0:
             return
 
@@ -71,6 +72,13 @@ class PricePlot:
         if earn_point:
             subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1, sharex=subplot)
             self._earn_plot(subplot, earn_point)
+            num += 1
+        
+        if atr60 is not None:
+            subplot = plt.subplot2grid((figure_num, 1), (num, 0), rowspan=1, colspan=1, sharex=subplot)
+            subplot.plot(range(0, self.data.shape[0]), atr60, color="green", linewidth=1.0)
+            plt.fill_between(range(0, self.data.shape[0]), atr60, 0, color='green', alpha=.5)
+            num += 1
         
         if subplot:
             def format_date(x, pos):

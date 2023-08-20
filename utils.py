@@ -12,8 +12,8 @@ class RingBuffer:
     def __init__(self, size: int) -> None:
         self.size = size
         self.buffer = np.zeros(size)
-        self.num = 0
-        self.idx = 0    # The next position to push
+        self.num: int = 0
+        self.idx: int = 0    # The next position to push
     
     def insert(self, data) -> int:
         out_data = 0
@@ -31,8 +31,24 @@ class RingBuffer:
         return out_data
     
     def get_latest_data(self):
-        return self.buffer[self.idx - 1]
+        return self.buffer[int(self.idx - 1)]
         
+    def get_data(self, idx: int):
+        i = idx + self.idx - 1
+        i = i - self.size if i > self.size else i
+        return self.buffer[i]
+    
+    def get_data_arr(self, num):
+        assert num <= self.size
+        start = int(self.idx - num)
+
+        if start >= 0:
+            arr = self.buffer[start:self.idx]
+        else:
+            arr = np.append(self.buffer[start:], self.buffer[:self.idx])
+
+        return arr
+
     def get_previous_data(self, previous_step: int) -> int:
         assert(previous_step >= 0 and previous_step < self.size)
         # previous_step: 0 Means current data.
@@ -97,7 +113,10 @@ class MAs:
     def get_latest_data(self):
         return self.buffer.get_latest_data()
     
-    def get_ma(self, level: int):
+    def get_data_arr(self, num: int):
+        return self.buffer.get_data_arr(num)
+    
+    def get_ma(self, level: int) -> MA:
         return self.mas[level]
 
 

@@ -72,6 +72,7 @@ def plot(data: Data, policy: Policy, state: AccountState):
     fig.plot(plot_candle = data.len()<=1100, 
              points      = policy.get_plot_points(data), 
              earn_point  = earn_point,
+             atr60       = policy.get_atr60(),
              mas= [3, 10, 60])
 
 
@@ -201,15 +202,17 @@ def simulated_trade():
     print('Exp name: {}'.format(exp_name))
     print('Loading data')
     symbol = token_name+usd_name
+    mtd = milliseconds_to_date
     data = Data(symbol, DataType.INTERVAL_1MINUTE, 
                 # Test
                 # start_str="2023-07-29 06:04:59.999000", is_futures=is_futures) # Note no UTC+8
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
-                # num=40000, is_futures=is_futures)
+                num=2000, is_futures=is_futures)
                 # start_str='2023-06-24 1:30:00 UTC+8', end_str='2023-06-24 3:00:00 UTC+8', is_futures=is_futures)
-                # start_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', is_futures=is_futures)
-                end_str=milliseconds_to_date(1688655419999+1) + ' UTC+8', num=100000, is_futures=is_futures)
+                # start_str=milliseconds_to_date(1692364319999+1) + ' UTC+8', is_futures=is_futures)
+                # start_str=mtd(1682655420000) + ' UTC+8',  end_str=mtd(1692364319999) + ' UTC+8', is_futures=is_futures)
+                # start_str=milliseconds_to_date(1682655420000) + ' UTC+8', num=1000, is_futures=is_futures)
 
     print('Loading data finished')
 

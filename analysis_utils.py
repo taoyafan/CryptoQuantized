@@ -141,9 +141,9 @@ class FeatTypes(Enum):
 
 
 feat_base = {
-    FeatTypes.PRICE:     'close', 
-    FeatTypes.DPRICE:    'close', 
-    FeatTypes.TR:        'close', 
+    FeatTypes.PRICE:     'last_top', 
+    FeatTypes.DPRICE:    'last_top', 
+    FeatTypes.TR:        'last_top', 
     FeatTypes.VOLUME:    'quote_assert_volume', 
     FeatTypes.VOL_TR:    'volume/TR', 
     FeatTypes.TRADE_NUM: 'number_of_trades', 
