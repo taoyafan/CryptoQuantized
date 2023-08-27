@@ -207,7 +207,7 @@ def simulated_trade():
                 # Test
                 # start_str="2023-07-29 06:04:59.999000", is_futures=is_futures) # Note no UTC+8
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
-                # start_str='2023-06-21 22:07:00 UTC+8', num=100000, is_futures=is_futures)
+                # start_str='2023-08-26 00:00:00 UTC+8', num=1000, is_futures=is_futures)
                 num=2000, is_futures=is_futures)
                 # start_str='2023-06-24 1:30:00 UTC+8', end_str='2023-06-24 3:00:00 UTC+8', is_futures=is_futures)
                 # start_str=milliseconds_to_date(1692364319999+1) + ' UTC+8', is_futures=is_futures)
