@@ -560,15 +560,19 @@ class PolicySwing(PolicyBreakThrough):
         self.last_time = time
         self.last_close = 0.0
         self.last_open = 0.0
+        # self.last_volume = 0.0
         self.sell_order_valid_until = np.inf
         self.buy_order_valid_until = np.inf
+
         self.atr = MAs([3, 10, 60])
         self.aer = MAs([3, 11, 21, 60])
         self.aer_abs = MAs([11, 21, 60])
         self.ma = MAs([3, 10, 60])
         self.ma10_buffer = RingBuffer(11)
         self.ma60_buffer = RingBuffer(11)
+        self.std10 = MAs([10])
         self.std10abs = MAs([10, 60])
+        # self.av = MAs([60])
         self.fee = kwargs['fee']
         self.last_ma300 = 0
         
@@ -608,7 +612,9 @@ class PolicySwing(PolicyBreakThrough):
         self.ma.update(close)
         self.ma10_buffer.insert(self.ma.get_ma(10).mean)
         self.ma60_buffer.insert(self.ma.get_ma(60).mean)
+        self.std10.update(close - self.ma.get_ma(10).mean)
         self.std10abs.update(abs(close - self.ma.get_ma(10).mean))
+        # self.av.update(volume)
 
         if self.analyze_en:
             self.atr60_all = np.append(self.atr60_all, self.atr.get_ma(60).mean / close)
@@ -618,6 +624,7 @@ class PolicySwing(PolicyBreakThrough):
         self.last_time   = timestamp
         self.last_open   = self.last_close  # Use last open to replace open
         self.last_close  = close
+        # self.last_volume = volume
 
         super().update(high, low, close, volume, timestamp)
 
@@ -765,20 +772,38 @@ class PolicySwing(PolicyBreakThrough):
         # - AER
         aer11 = self.aer.get_ma(11).mean
         # aerabs11 = self.aer_abs.get_ma(11).mean
-        # aerabs21 = self.aer_abs.get_ma(21).mean
+        aerabs21 = self.aer_abs.get_ma(21).mean
         aerabs60 = self.aer_abs.get_ma(60).mean
 
+        # - E/V
+        # e_div_v = d_price_atr60(self.last_close - self.last_open) / (self.last_volume / self.av.get_ma(60).mean)
+        
+        # - 2 step inc
+        inc_in_2step = -price_atr60(self.last_open)
+
         # - ma, ma10 inc, ma60 inc
+        ma3 = price_atr60(self.ma.get_ma(3).mean)
         ma10 = price_atr60(self.ma.get_ma(10).mean)
+        ma60 = price_atr60(self.ma.get_ma(60).mean)
         ma10_inc10 = d_price_atr60(self.ma10_buffer.get_data(0) - self.ma10_buffer.get_data(-10))
         ma60_inc10 = d_price_atr60(self.ma60_buffer.get_data(0) - self.ma60_buffer.get_data(-10))
 
         # - open
-        open = (self.last_open / self.last_close - 1) / atr60
+        open  = (self.last_open / self.last_close - 1) / atr60
+        high  = (self.highs[-1] / self.last_close - 1) / atr60
+        low   = (self.lows[-1] / self.last_close - 1) / atr60
+        close = price_atr60(self.last_close)
 
         # - std10abs
+        std10      = d_price_atr60(self.std10.get_ma(10).mean)
         std10abs10 = d_price_atr60(self.std10abs.get_ma(10).mean)
         std10abs60 = d_price_atr60(self.std10abs.get_ma(60).mean)
+
+        # ATR std
+        atr20arr = self.atr.get_data_arr(20)
+        atrstd20 = d_price_atr60(atr20arr.std())
+        atr60arr = self.atr.get_data_arr(60)
+        atrstd60 = d_price_atr60(atr60arr.std())
 
         # Bottom
         step_after_bottom = 0
@@ -796,6 +821,9 @@ class PolicySwing(PolicyBreakThrough):
         step_after_top = (self.last_time - self.last_top_time) // 60000
         cycle_step = step_after_top - step_after_bottom
         btm_step_div_top_step = step_after_bottom / step_after_top if step_after_top != 0 else 1
+        
+        # - top-bottom/step
+        top_btm_k = -price_atr60(bottom) / (step_after_bottom + 1) if bottom else None
 
         # Bad condition ----------------------------------------------------------------
         log_bad = False
@@ -809,26 +837,29 @@ class PolicySwing(PolicyBreakThrough):
                 self._log(str, end='\t')
             return cond
         
-        # - low aerabs60
-        b_aerabs60_cond = log_b_cond(aerabs60 < 0.42, f"aerabs60 pass: {aerabs60 :.3f}")
-
+        # - low aerabs
+        b_aerabs_cond   = log_b_cond(aerabs21 < 0.43 and aerabs60 < 0.41 and ma3 < -0.3 and close < -0.18, 
+                                   f"aerabs pass: {aerabs21 :.3f}, {aerabs60 :.3f}, {ma3 :.2f}, {close :.3f}")
         # - low aer11
         b_aer11_cond    = log_b_cond(aer11 < 0.03 and ma10_inc10 < 1.7 and (open < 0.2 or open > 0.5), 
-                                  f"aer11 pass: {aer11 :.3f}, {ma10_inc10 :.3f}, {open :.2f}")
+                                     f"aer11 pass: {aer11 :.3f}, {ma10_inc10 :.3f}, {open :.2f}")
         # - ATR60 is too low
-        b_atr60_cond    = log_b_cond(atr60 < 0.0003, f"atr60 pass: {atr60 :.5f}")
-
+        b_atr60_cond    = log_b_cond(atr60 < 0.0003 and std10abs10 < 1, 
+                                     f"atr60 pass: {atr60 :.5f}, {std10abs10 :.3f}")
         # - low range around ma 10, i.e. No large range around ma.
         b_std10abs_cond = log_b_cond(std10abs60 < 0.55 or (std10abs60 < 0.8 and std10abs10 < 0.3), 
-                                    f"std10abs pass: {std10abs60 :.3f}, {std10abs10 :.3f}")
+                                     f"std10abs pass: {std10abs60 :.3f}, {std10abs10 :.3f}")
         # - When cycle step is 1.
-        b_step_cond     = log_b_cond(cycle_step == 1, f"step_cond pass: {cycle_step}")
-
+        b_step_cond     = log_b_cond(cycle_step == 1 and atr10 > 0.82 and ma10 < -0.2 and 
+                                     not (inc_in_2step > 1.05 and high < 0.175 and low < -0.74),
+                                     f"step_cond pass: {cycle_step}, {atr10 :.3f}, {ma10 :.2f}, " + 
+                                     f"{inc_in_2step :.3}, {high :.3}, {low :.3}")
         # - MA60 inc 10
-        b_ma60_inc10_cond = log_b_cond(ma60_inc10 < -0.08 and ma10 < -1.3, 
-                                       f"ma60_inc10 pass: {ma60_inc10 :.4f}, {ma10 :.3f}")
+        b_ma60_inc10_cond = log_b_cond(ma60_inc10 < -0.08 and ma10 < -1.3 and ma60 < 3 and 
+                                       (ma60 > -1.5 or (top_btm_k and top_btm_k < 1.3)), 
+                                       f"ma60_inc10 pass: {ma60_inc10 :.4f}, {ma10 :.3f}, {ma60 :.2f}, {top_btm_k :.2f}")
 
-        bad_cond = (b_aerabs60_cond or b_aer11_cond or b_atr60_cond or b_std10abs_cond or 
+        bad_cond = (b_aerabs_cond or b_aer11_cond or b_atr60_cond or b_std10abs_cond or 
                     b_step_cond or b_ma60_inc10_cond)
         
         good_cond = False
@@ -837,20 +868,8 @@ class PolicySwing(PolicyBreakThrough):
 
             # Good condition ----------------------------------------------------------------
             
-            # ATR std
-            atr20arr = self.atr.get_data_arr(20)
-            atrstd20 = d_price_atr60(atr20arr.std())
-            
-            # - close
-            close = price_atr60(self.last_close)
-            # - 2 step inc
-            inc_in_2step = -price_atr60(self.last_open)
             # - ll_top
             ll_top = price_atr60(self.ll_top)
-            # - top-bottom/step
-            top_btm_k = -price_atr60(bottom) / (step_after_bottom + 1) if bottom else None
-            # - ma3
-            ma3 = price_atr60(self.ma.get_ma(3).mean)
 
             log_good = False
 
@@ -876,14 +895,17 @@ class PolicySwing(PolicyBreakThrough):
             g_2step_inc_cond  = log_g_cond((inc_in_2step < 0.2) and (btm_step_div_top_step < 0.67), 
                                     f"2step_inc pass: {inc_in_2step :.2f}, {btm_step_div_top_step :.3f}")
             # - ll top is high
-            g_ll_top_cond     = log_g_cond((ll_top > 2.5) and ((aer11 > -0.01) or (close > -0.5)), 
-                                    f"ll_top pass: {ll_top :.2f}, {aer11 :.3f}, {close :.2f}")
+            g_ll_top_cond     = log_g_cond((ll_top > 2.5) and ((aer11 > -0.01) or (close > -0.5 and 
+                                    (std10 < -1.5 or (top_btm_k and top_btm_k > 0.5 and close < -0.19)))), 
+                                    f"ll_top pass: {ll_top :.2f}, {aer11 :.3f}, {close :.2f}, {std10 :.2f}, {top_btm_k :.2f}")
             # - growing not too fast and top is not high
             g_ma3_cond        = log_g_cond((ma3 > -0.45) and std10abs60 > 0.7 and ((cycle_step >= 3) or (close > -0.13)), 
                                     f"ma3 pass: {ma3 :.3f}, {std10abs60 :.2f}, {cycle_step}, {close :.3f}")
             # - Cycle step 
-            g_cycle_step_cond = log_g_cond((cycle_step == 1) and ((ma10_inc10 > 1.6) or (atr60 > 0.001)), 
-                                    f"cycle_step pass: {cycle_step}, {ma10_inc10 :.3f}, {atr60 :.4f}")
+            g_cycle_step_cond = log_g_cond((cycle_step == 1) and ((ma10_inc10 > 1.6 and open > -0.57) or 
+                                    ((aerabs21 < 0.38) & (atrstd20 < 0.374) & (atrstd60 > 0.46))), 
+                                    f"cycle_step pass: {cycle_step}, {ma10_inc10 :.3f}, {atr60 :.4f}, " + 
+                                    f"{aerabs21:.3f}, {atrstd20 :.4f}, {atrstd60 :.4f}")
 
             good_cond = (g_atrstd20_cond or g_aerabs60_cond or g_2step_inc_cond or
                          g_ll_top_cond or g_ma3_cond or g_cycle_step_cond)
