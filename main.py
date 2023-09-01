@@ -49,7 +49,7 @@ def main_loop(state: AccountState, adaptor: Adaptor, policy: Policy, log_en=Fals
                     high = adaptor.get_latest_kline_value(DataElements.HIGH),
                     low = adaptor.get_latest_kline_value(DataElements.LOW),
                     close = adaptor.get_latest_kline_value(DataElements.CLOSE),
-                    volume = adaptor.get_latest_kline_value(DataElements.VOLUME),
+                    volume = adaptor.get_latest_kline_value(DataElements.QUOTE_ASSERT_VOLUME),
                     timestamp = last_timestamp)
         
         # Used for simulator
@@ -209,7 +209,7 @@ def simulated_trade():
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-08-26 00:00:00 UTC+8', num=1000, is_futures=is_futures)
                 num=2000, is_futures=is_futures)
-                # start_str='2023-06-24 1:30:00 UTC+8', end_str='2023-06-24 3:00:00 UTC+8', is_futures=is_futures)
+                # start_str='2023-08-31 18:00:00 UTC+8', end_str='2023-08-31 20:00:00 UTC+8', is_futures=is_futures)
                 # start_str=milliseconds_to_date(1692364319999+1) + ' UTC+8', is_futures=is_futures)
                 # start_str=mtd(1682655420000) + ' UTC+8',  end_str=mtd(1692364319999) + ' UTC+8', is_futures=is_futures)
                 # start_str=milliseconds_to_date(1682655420000) + ' UTC+8', num=1000, is_futures=is_futures)
