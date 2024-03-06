@@ -69,7 +69,7 @@ class TradeInfo:
         self.side: OrderSide          = side
         self.reason: str              = reason
         self.reduce_only: bool        = reduce_only
-        self.leverage: float          = leverage
+        self.leverage: int            = leverage
         self.can_be_sent: bool        = can_be_sent
         self.loss_allowed             = loss_allowed
         

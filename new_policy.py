@@ -6,8 +6,7 @@ from enum import Enum, auto
 import json
 import os
 
-from base_types import OrderSide, IdxValue, TradeInfo, Order, OptState, Recoverable
-from adapter import Adaptor
+from base_types import OrderSide, IdxValue, TradeInfo, Order, OptState
 from account_state import AccountState
 from utils import date_to_milliseconds, milliseconds_to_date, MAs, RingBuffer
 from plot import PricePlot
@@ -229,7 +228,7 @@ class Policy(ABC):
 # Sell when break through prior low
 class PolicyBreakThrough(Policy):
 
-    MIN_THRESHOLD = 2
+    MIN_THRESHOLD = 60
 
     def __init__(self, state: AccountState, time, log_en: bool=True, analyze_en: bool=True, policy_private_log: bool=False, **kwargs):
         super().__init__(state, log_en, analyze_en)
@@ -859,8 +858,9 @@ class PolicySwing(PolicyBreakThrough):
                                        (ma60 > -1.5 or (top_btm_k and top_btm_k < 1.3)), 
                                        f"ma60_inc10 pass: {ma60_inc10 :.4f}, {ma10 :.3f}, {ma60 :.2f}, {top_btm_k :.2f}")
 
-        bad_cond = (b_aerabs_cond or b_aer11_cond or b_atr60_cond or b_std10abs_cond or 
-                    b_step_cond or b_ma60_inc10_cond)
+        # bad_cond = (b_aerabs_cond or b_aer11_cond or b_atr60_cond or b_std10abs_cond or 
+        #             b_step_cond or b_ma60_inc10_cond)
+        bad_cond = b_aer11_cond
         
         good_cond = False
         if bad_cond:
@@ -913,7 +913,8 @@ class PolicySwing(PolicyBreakThrough):
             if good_cond:
                 self._log()
         
-        can_skip = (bad_cond and (not good_cond))
+        # can_skip = (bad_cond and (not good_cond))
+        can_skip = (bad_cond)
 
         return can_skip
 
@@ -1029,12 +1030,12 @@ class PolicySwing(PolicyBreakThrough):
                 # leverage = p / rl - (1 - p) / rw
                 # leverage = 0.001 / atr60
                 leverage = 1
-                leverage = min(5, int(leverage // 1))
-                leverage = max(1, leverage)
+                # leverage = min(5, int(leverage // 1))
+                # leverage = max(1, leverage)
 
                 # if rw > 0 and rl > 0 and leverage > 0:
-                # if (leverage > 0):
-                if (leverage > 0 and not self._buy_skip_bad_good()):
+                if (leverage > 0):
+                # if (leverage > 0 and not self._buy_skip_bad_good()):
                 # if (leverage > 0 and not (self._buy_skip_cond1() or self._buy_skip_cond2())):
                     order = None
                     
@@ -1057,7 +1058,7 @@ class PolicySwing(PolicyBreakThrough):
 
                     if order:
                         # To make sure not move the order to finished
-                        order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=int(1.9*60000))
+                        order.add_exit(0, Order.ABOVE, "Long timeout", lock_time=int(59.9*60000))
                         # order.add_exit(self.last_bottom, Order.BELLOW, "Long stop", can_be_sent=True, lock_time=1*60000) # , lock_time=1*60000
                         # order.add_exit(sell_price, Order.ABOVE, "Long exit", can_be_sent=True)
                     
