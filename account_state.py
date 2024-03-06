@@ -65,6 +65,12 @@ class AccountState:
         
         return True
     
+    def get_debts(self) -> float:
+        return self.adaptor.get_debts()
+
+    def repay(self, debts: float) -> bool:
+        return True
+
     def reset(self):
         self.orders = set()
         self.removed_orders = set()

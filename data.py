@@ -339,13 +339,14 @@ class Data:
 def main():
     # symbol = "BTCUSDT"
     # symbol = "BTCBUSD"
-    symbol = "BTCTUSD"
+    symbol = "BTCFDUSD"
+    # symbol = "BTCTUSD"
     # symbol = "SOLBUSD"
     # symbol = "GMTBUSD"
     # symbol = "DOGEBUSD"
     # symbol = "1000LUNCBUSD"
     interval = DataType.INTERVAL_1MINUTE
-    start = "2023/3/23 00:00 UTC+8"
+    start = "2023/9/9 00:00 UTC+8"
     # start = "140 days ago UTC+8"
     end = "1 minute ago UTC+8"
 

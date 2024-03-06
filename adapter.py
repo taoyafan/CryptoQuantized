@@ -110,6 +110,10 @@ class Adaptor(ABC):
     @abstractmethod
     def get_timestamp(self) -> int:
         return
+    
+    # @abstractmethod
+    # def get_debts(self) -> float:
+    #     return
 
     def get_time_str(self) -> str:
         return milliseconds_to_date(self.get_timestamp())
@@ -932,16 +936,36 @@ class AdaptorSimulator(Adaptor):
     CLOSE = PriceType.CLOSE
 
     def __init__(self, usd_name: str, token_name: str, init_balance: float, 
-                 leverage: int, data: Data, fee: float, log_en=True):
+                 leverage: int, data: Data, fee: float, interest:float, log_en=True):
         super().__init__(usd_name, token_name, data, log_en)
+        # Net asset
         self._balance = init_balance
         self._pos_amount = 0
         self.leverage = leverage
         self.i = 0
         self.fee = fee
 
+        self.debt = 0
+        self.debt_start_time = 0
+        self.interest_rate = interest
+
         self.price_last_trade = 0
 
+    def get_interest(self, debt_change=0):
+        interest = 0
+
+        if debt_change > 0:
+            interest = debt_change * self.interest_rate
+            self.debt += debt_change
+        else:
+            assert debt_change == 0, "debt change cannot less than 0"
+
+            # Calculate interest per hour
+            if self.debt > 0 and self.get_timestamp() // 60000 % 60 == 0:
+                interest = self.debt * self.interest_rate
+
+        return interest
+    
     def create_order(self, order: Order) -> Order.State:
         return self.update_order(order)
 
@@ -1006,7 +1030,9 @@ class AdaptorSimulator(Adaptor):
             # Reduce first
             if self.pos_amount() != 0:
                 # pos_value must called before clear pos_amount
-                self._balance += self.pos_value(price=trade_price) * (1 - self.fee)
+                fee = trade_price * self.pos_amount() * self.fee
+                pos_value = self.pos_value(price=trade_price)
+                self._balance += pos_value - fee
                 self._pos_amount = 0
                 self.price_last_trade = trade_price
 
@@ -1014,17 +1040,26 @@ class AdaptorSimulator(Adaptor):
                 balance = self._balance
                 self.leverage = leverage
                 pos_amount = self.leverage * balance / trade_price
-                # pos_amount must be an integer multiple of self.token_min_pos
-                pos_amount = pos_amount // self.token_min_pos * self.token_min_pos
+                # pos_amount must be an integer multiple of self.min_pos
+                pos_amount = pos_amount // self.min_pos * self.min_pos
 
-                assert pos_amount >= self.token_min_pos, 'Pos amount is {}, but min value is {}'.format(
-                pos_amount, self.token_min_pos)
+                assert pos_amount >= self.min_pos, 'Pos amount is {}, but min value is {}'.format(
+                pos_amount, self.min_pos)
 
-                if pos_amount >= self.token_min_pos:
+                if pos_amount >= self.min_pos:
                     # Update balance and pos_amount
                     self._pos_amount += pos_amount if side == self.BUY else -pos_amount
                     total_u = pos_amount * trade_price
-                    self._balance -= total_u / self.leverage + total_u * self.fee
+                    
+                    # Update debts
+                    new_debt = total_u - self._balance - self.debt
+                    if new_debt > 0:
+                        interest = self.get_interest(new_debt)
+                    else:
+                        interest = 0
+                    
+                    # Update left balance
+                    self._balance -= total_u / self.leverage + total_u * self.fee + interest
                     self.price_last_trade = trade_price
 
         return trade_price
@@ -1040,6 +1075,7 @@ class AdaptorSimulator(Adaptor):
     
     def is_next_step(self) -> bool:
         self.i += 1
+        self._balance -= self.get_interest()
         return True
     
     def balance(self, refresh_account=False) -> float:

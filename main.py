@@ -94,7 +94,7 @@ def final_log(data: Data, policy: Policy, state: AccountState):
 
 
 def real_trade():
-    usd_name = 'TUSD'
+    usd_name = 'FDUSD'
     token_name='BTC'
     is_futures=False
     log_en = True
@@ -173,7 +173,8 @@ def real_trade():
 
 def simulated_trade():
     # usd_name = 'BUSD'
-    usd_name = 'TUSD'
+    # usd_name = 'TUSD'
+    usd_name = 'FDUSD'
     # usd_name = 'USDT'
     # token_name='LUNA2'
     # token_name='1000LUNC'
@@ -208,17 +209,18 @@ def simulated_trade():
                 # start_str="2023-07-29 06:04:59.999000", is_futures=is_futures) # Note no UTC+8
                 # end_str='2023-06-14 11:24:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str='2023-08-26 00:00:00 UTC+8', num=1000, is_futures=is_futures)
-                num=2000, is_futures=is_futures)
+                num=100000, is_futures=is_futures)
                 # start_str='2023-08-31 18:00:00 UTC+8', end_str='2023-08-31 20:00:00 UTC+8', is_futures=is_futures)
-                # start_str=milliseconds_to_date(1692364319999+1) + ' UTC+8', is_futures=is_futures)
+                # start_str='2023-09-09 00:01:00 UTC+8', num=100000, is_futures=is_futures)
                 # start_str=mtd(1682655420000) + ' UTC+8',  end_str=mtd(1692364319999) + ' UTC+8', is_futures=is_futures)
                 # start_str=milliseconds_to_date(1682655420000) + ' UTC+8', num=1000, is_futures=is_futures)
 
     print('Loading data finished')
 
     fee = 0.00002
+    interest = 0.00001
     adaptor = AdaptorSimulator(usd_name=usd_name, token_name=token_name, init_balance=1000000, 
-                               leverage=1, data=data, fee=fee, log_en=log_en)
+                               leverage=1, data=data, fee=fee, interest=interest, log_en=log_en)
 
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
 
