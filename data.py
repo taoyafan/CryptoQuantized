@@ -335,7 +335,8 @@ class Data:
 def main():
     # symbol = "BTCUSDT"
     # symbol = "BTCBUSD"
-    symbol = "BTCFDUSD"
+    # symbol = "BTCFDUSD"
+    symbol = "ETHFDUSD"
     # symbol = "BTCTUSD"
     # symbol = "SOLBUSD"
     # symbol = "GMTBUSD"

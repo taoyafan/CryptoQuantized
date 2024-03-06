@@ -95,7 +95,7 @@ def final_log(data: Data, policy: Policy, state: AccountState):
 
 def real_trade():
     usd_name = 'FDUSD'
-    token_name='BTC'
+    token_name='ETH'
     is_futures=False
     log_en = True
     analyze_en = False
@@ -106,7 +106,7 @@ def real_trade():
     adaptor = AdaptorBinance(usd_name=usd_name, token_name=token_name, data=data, log_en=log_en, is_futures=is_futures)
     data.set_client(adaptor.client)
     data.update(end_str="1 minute ago UTC+8")
-    data.replace_data_with_range(num=100)
+    data.replace_data_with_range(num=300)
     print('Data start with {}, end with {}'.format(data.start_time_str(), data.end_time_str()))
 
     state = AccountState(adaptor, analyze_en=analyze_en, log_en=log_en)
@@ -181,6 +181,7 @@ def simulated_trade():
     # token_name='DOGE'
     # token_name='GMT'
     token_name = 'BTC'
+    # token_name = 'ETH'
     # token_name = 'SOL'
     is_futures = False
 
